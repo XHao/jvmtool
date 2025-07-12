@@ -29,9 +29,9 @@ type JpsOption struct {
 	User string
 }
 
-// Validate checks if the JpsOption fields are valid.
+// JpsValidate checks if the JpsOption fields are valid.
 // Currently, it validates the User field if provided.
-func (opt *JpsOption) Validate() error {
+func (opt *JpsOption) JpsValidate() error {
 	if opt.User != "" {
 		_, err := user.Lookup(opt.User)
 		if err != nil {
@@ -50,7 +50,7 @@ func (opt *JpsOption) Validate() error {
 // JpsList returns a list of Java process information for the current or specified user.
 // @see sun.jvmstat.perfdata.monitor.protocol.local.LocalVmManager.activeVms()
 func JpsList(option JpsOption) {
-	if err := option.Validate(); err != nil {
+	if err := option.JpsValidate(); err != nil {
 		log(err.Error())
 		return
 	}
