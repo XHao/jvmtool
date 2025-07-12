@@ -87,10 +87,7 @@ func Jattach(option JattachOption) {
 
 	if err := jp.checkSocket(); err != nil {
 		log(err.Error())
-		return
-	} else {
-		if err := jp.loadAgent(option.AgentPath, option.AgentParams); err != nil {
-			log(err.Error())
-		}
+	} else if err := jp.loadAgent(option.AgentPath, option.AgentParams); err != nil {
+		log(err.Error())
 	}
 }

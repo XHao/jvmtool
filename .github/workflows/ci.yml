@@ -36,7 +36,9 @@ jobs:
       run: go build -v ./...
 
     - name: Run tests and generate coverage
-      run: go test -v -coverprofile=coverage.out ./...
+      run: |
+        go test -v -coverprofile=coverage.raw.out ./...
+        grep -v 'cmd/main.go' coverage.raw.out > coverage.out
 
     - name: Upload coverage artifact
       uses: actions/upload-artifact@v4

@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"strings"
@@ -22,7 +24,7 @@ func (jp *JvmProcess) checkSocket() error {
 	socketPath := fmt.Sprintf("%s/.java_pid%d", os.TempDir(), jp.Pid)
 	attachFile := fmt.Sprintf("%s/.attach_pid%d", os.TempDir(), jp.Pid)
 	var created bool
-	timeout := 10_000
+	timeout := 9_000
 	timeSpend := 0
 	for {
 		_, err := os.Stat(socketPath)
@@ -40,7 +42,7 @@ func (jp *JvmProcess) checkSocket() error {
 		created = true
 		f, err := os.Create(attachFile)
 		if f != nil {
-			f.Close()
+			defer f.Close()
 		}
 		defer os.Remove(attachFile)
 		if err != nil {
@@ -101,32 +103,36 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 	}
 
 	log("waiting for attach to complete...")
-	ret, err := readAttachResponse(fd, jp.Pid)
+	resp, err := readAttachResponse(fd, jp.Pid)
 	if err != nil {
 		return err
 	}
 	log("attach operation completed")
 
-	// ret[0]: attach result code, "0" means success
-	if len(ret) == 0 {
-		return fmt.Errorf("empty response from target process")
+	if len(resp) == 0 {
+		return fmt.Errorf("target VM did not respond")
 	}
-	if ret[0] != "0" {
-		return fmt.Errorf("attach to %v failed, error code: %v", jp.Pid, ret[0])
-	}
+	ret := strings.Split(resp, "\n")
+	returnCode := ret[0]
+	if returnCode != "0" {
+		return fmt.Errorf("agent load failed, return code: %s", returnCode)
 
-	// ret[1]: load command result code, "0" means success
-	var code string
-	if len(ret) == 1 {
-		code = ret[0]
+	}
+	var errCode string
+	if strings.HasPrefix(ret[1], "return code: ") {
+		errCode = ret[1][13:]
 	} else {
-		if strings.Contains(ret[1], "return code: ") {
-			code = ret[1][13:]
+		b := ret[1][0]
+		if b == '-' || (b >= '0' && b <= '9') {
+			errCode = ret[1]
 		} else {
-			code = ret[1]
+			errCode = "-1"
 		}
 	}
-	switch code {
+
+	switch errCode {
+	case "-1":
+		return errors.New(ret[1])
 	case "0":
 		return nil
 	case "100":
@@ -136,25 +142,28 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 	case "102":
 		return fmt.Errorf("agent load failed, code 102: No agentmain method or agentmain failed")
 	}
-	return nil
+	return fmt.Errorf("agent load failed, unknown message: %s", ret[1])
 }
 
-func readAttachResponse(fd int, pid int32) ([]string, error) {
-	var lines []string
+func readAttachResponse(fd int, pid int32) (resp string, err error) {
 	buf := make([]byte, 4096)
-	n, err := unix.Read(fd, buf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read attach response from process %v: %v", pid, err.Error())
-	}
-	start := 0
-	for i := 0; i < n; i++ {
-		if buf[i] == 0 {
-			lines = append(lines, string(buf[start:i]))
-			start = i + 1
+	var data []byte
+	n := 0
+	for {
+		n, err = unix.Read(fd, buf)
+		if n > 0 {
+			data = append(data, buf[:n]...)
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("failed to read attach response from process %v: %v", pid, err.Error())
+		}
+		if n == 0 {
+			break
 		}
 	}
-	if start < n {
-		lines = append(lines, string(buf[start:n]))
-	}
-	return lines, nil
+	resp = string(data)
+	return
 }

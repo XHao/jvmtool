@@ -2,7 +2,6 @@ package internal
 
 import (
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -10,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/XHao/jvmtool/internal/testutil"
 	"github.com/XHao/jvmtool/pkg"
 )
 
@@ -140,43 +140,11 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 		t.Fatalf("failed to get current user: %v", err)
 	}
 
-	javaPath, err := exec.LookPath("java")
+	p, cleanup, err := testutil.StartJavaProcess()
 	if err != nil {
-		t.Skip("java not found in PATH, skipping actual Java process test")
+		t.Skip("failed to start java process:", err)
 	}
-
-	tmpDir := os.TempDir()
-	javaFile := filepath.Join(tmpDir, "TestJpsList_ActualJavaProcess.java")
-	javaSource := `public class TestJpsList_ActualJavaProcess { public static void main(String[] args) throws Exception { Thread.sleep(3000); } }`
-	if err := os.WriteFile(javaFile, []byte(javaSource), 0644); err != nil {
-		t.Fatalf("failed to write java file: %v", err)
-	}
-	defer os.Remove(javaFile)
-
-	cmdCompile := exec.Command(javaPath, "c", javaFile)
-	cmdCompile.Dir = tmpDir
-
-	javacPath, err := exec.LookPath("javac")
-	if err != nil {
-		t.Skip("javac not found in PATH, skipping actual Java process test")
-	}
-	cmdCompile = exec.Command(javacPath, javaFile)
-	cmdCompile.Dir = tmpDir
-	if out, err := cmdCompile.CombinedOutput(); err != nil {
-		t.Fatalf("failed to compile java file: %v, output: %s", err, string(out))
-	}
-	classFile := filepath.Join(tmpDir, "TestJpsList_ActualJavaProcess.class")
-	defer os.Remove(classFile)
-
-	cmdRun := exec.Command(javaPath, "-cp", tmpDir, "TestJpsList_ActualJavaProcess")
-	cmdRun.Dir = tmpDir
-	if err := cmdRun.Start(); err != nil {
-		t.Fatalf("failed to start java process: %v", err)
-	}
-	defer func() {
-		_ = cmdRun.Process.Kill()
-		cmdRun.Wait()
-	}()
+	defer cleanup()
 
 	time.Sleep(2 * time.Second)
 
@@ -185,12 +153,12 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 	JpsList(opt)
 	found := false
 	for _, l := range getLogs() {
-		if strings.Contains(l, "TestJpsList_ActualJavaProcess") {
+		if strings.Contains(l, p.Class) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected to find TestJpsList_ActualJavaProcess in logs, got: %v", getLogs())
+		t.Errorf("expected to find %s in logs, got: %v", p.Class, getLogs())
 	}
 }
