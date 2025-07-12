@@ -38,6 +38,9 @@ func ParseJattachFlags(args []string) (JattachOption, error) {
 
 // JattachValidate validates the JattachOption fields.
 func (opt *JattachOption) JattachValidate() error {
+	if opt.AgentPath == "" {
+		return fmt.Errorf("agentpath is required")
+	}
 	if opt.User == "" {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -61,9 +64,6 @@ func (opt *JattachOption) JattachValidate() error {
 	pidFile := os.TempDir() + "/hsperfdata_" + opt.User + "/" + fmt.Sprint(opt.Pid)
 	if !pkg.PathExists(pidFile) {
 		return fmt.Errorf("pid does not belong to the specified user")
-	}
-	if opt.AgentPath == "" {
-		return fmt.Errorf("agentpath is required")
 	}
 	return nil
 }
