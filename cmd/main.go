@@ -69,6 +69,10 @@ Commands:
 
 jps options:
   -user <username>        Specify the user to list Java processes for. If not provided, uses the current user.
+  -l                      Show the full package name or the path to the jar file.
+  -v                      Show JVM arguments.
+  -m                      Show main method arguments.
+  -q                      Only show process id.
 
 jattach options:
   -user <username>        Specify the user to attach to. If not provided, uses the current user.
@@ -79,6 +83,7 @@ jattach options:
 Examples:
   jvmtool jps
   jvmtool jps -user alice
+  jvmtool jps -l -v -m
   jvmtool jattach -pid 12345 -agentpath /path/to/agent.jar
   jvmtool jattach -user alice -pid 12345 -agentpath /path/to/agent.jar -agentparams "foo=bar"
 

@@ -17,6 +17,10 @@ type JvmProcess struct {
 	Pid int32
 	Cmd string
 	user.User
+
+	mainClassOrJar string
+	vmArgs         string
+	mainArgs       string
 }
 
 // jdk/src/jdk.attach/share/classes/sun/tools/attach/HotSpotVirtualMachine.java

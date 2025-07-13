@@ -148,7 +148,13 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	clearLogs()
-	opt := JpsOption{User: currentUser.Username}
+	opt := JpsOption{
+		User:       currentUser.Username,
+		ShowLong:   true,
+		ShowVMArgs: true,
+		ShowArgs:   true,
+		Quiet:      false,
+	}
 	JpsList(opt)
 	found := false
 	for _, l := range getLogs() {
