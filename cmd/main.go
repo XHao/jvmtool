@@ -9,36 +9,53 @@ import (
 
 // main is the entry point of the application.
 func main() {
-	if len(os.Args) < 2 {
+	os.Exit(run(os.Args))
+}
+
+// run parses arguments and dispatches commands.
+// Returns exit code.
+func run(args []string) int {
+	if len(args) < 2 {
 		printHelp()
-		os.Exit(1)
+		return 1
 	}
 
-	cmd := os.Args[1]
-	args := os.Args[2:]
+	cmd := args[1]
+	cmdArgs := args[2:]
 
 	switch cmd {
 	case "help", "-h", "--help":
 		printHelp()
+		return 0
 	case "jps":
-		opt, err := internal.ParseJpsFlags(args)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to parse flags: %v\n", err)
-			os.Exit(1)
-		}
-		internal.JpsList(opt)
+		return runJps(cmdArgs)
 	case "jattach":
-		opt, err := internal.ParseJattachFlags(args)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to parse flags: %v\n", err)
-			os.Exit(1)
-		}
-		internal.Jattach(opt)
+		return runJattach(cmdArgs)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
+		printError(fmt.Sprintf("unknown command: %s", cmd))
 		printHelp()
-		os.Exit(1)
+		return 1
 	}
+}
+
+// runJps handles the "jps" command.
+func runJps(args []string) int {
+	opt, err := internal.ParseJpsFlags(args)
+	if err != nil {
+		printError(fmt.Sprintf("failed to parse flags: %v", err))
+		return 1
+	}
+	return internal.JpsList(opt)
+}
+
+// runJattach handles the "jattach" command.
+func runJattach(args []string) int {
+	opt, err := internal.ParseJattachFlags(args)
+	if err != nil {
+		printError(fmt.Sprintf("failed to parse flags: %v", err))
+		return 1
+	}
+	return internal.Jattach(opt)
 }
 
 // printHelp prints the usage information for the command line tool.
@@ -66,4 +83,9 @@ Examples:
   jvmtool jattach -user alice -pid 12345 -agentpath /path/to/agent.jar -agentparams "foo=bar"
 
 `)
+}
+
+// printError prints error messages to stderr.
+func printError(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
 }

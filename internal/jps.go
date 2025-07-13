@@ -16,7 +16,7 @@ import (
 
 // ParseJpsFlags parses flags for the "jps" command and returns the corresponding JpsOption.
 func ParseJpsFlags(args []string) (JpsOption, error) {
-	jpsFlagSet := flag.NewFlagSet("jps", flag.ExitOnError)
+	jpsFlagSet := flag.NewFlagSet("jps", flag.ContinueOnError)
 	user := jpsFlagSet.String("user", "", "specify the user to list Java processes for")
 	if err := jpsFlagSet.Parse(args); err != nil {
 		return JpsOption{}, err
@@ -49,10 +49,10 @@ func (opt *JpsOption) JpsValidate() error {
 
 // JpsList returns a list of Java process information for the current or specified user.
 // @see sun.jvmstat.perfdata.monitor.protocol.local.LocalVmManager.activeVms()
-func JpsList(option JpsOption) {
+func JpsList(option JpsOption) int {
 	if err := option.JpsValidate(); err != nil {
 		log(err.Error())
-		return
+		return 1
 	}
 
 	finded := []JvmProcess{}
@@ -65,7 +65,7 @@ func JpsList(option JpsOption) {
 	files, err := filepath.Glob(fileNamePattern)
 	if err != nil || len(files) == 0 {
 		log("no java process")
-		return
+		return 1
 	}
 	for _, file := range files {
 		index := strings.LastIndex(file, "/") + 1
@@ -81,7 +81,7 @@ func JpsList(option JpsOption) {
 
 	if len(pids) == 0 {
 		log("no java process")
-		return
+		return 1
 	}
 	for _, pid := range pids {
 		p, err := process.NewProcess(pid)
@@ -96,4 +96,5 @@ func JpsList(option JpsOption) {
 	for _, p := range finded {
 		log(fmt.Sprintf("%d %s\n", p.Pid, p.Cmd))
 	}
+	return 0
 }

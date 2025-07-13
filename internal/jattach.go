@@ -20,7 +20,7 @@ type JattachOption struct {
 
 // ParseJattachFlags parses flags for the "jattach" command and returns the corresponding JattachOption.
 func ParseJattachFlags(args []string) (JattachOption, error) {
-	jattachFlagSet := flag.NewFlagSet("jattach", flag.ExitOnError)
+	jattachFlagSet := flag.NewFlagSet("jattach", flag.ContinueOnError)
 	user := jattachFlagSet.String("user", "", "specify the user to attach to")
 	pid := jattachFlagSet.String("pid", "", "specify the pid of the Java process to attach to")
 	agentPath := jattachFlagSet.String("agentpath", "", "specify the path to the Java agent jar")
@@ -75,10 +75,10 @@ func toInt32(s string) int32 {
 }
 
 // Jattach performs the attach operation to a Java process specified by the JattachOption.
-func Jattach(option JattachOption) {
+func Jattach(option JattachOption) int {
 	if err := option.JattachValidate(); err != nil {
 		log(err.Error())
-		return
+		return 1
 	}
 
 	jp := &JvmProcess{
@@ -87,7 +87,10 @@ func Jattach(option JattachOption) {
 
 	if err := jp.checkSocket(); err != nil {
 		log(err.Error())
+		return 1
 	} else if err := jp.loadAgent(option.AgentPath, option.AgentParams); err != nil {
 		log(err.Error())
+		return 1
 	}
+	return 0
 }
