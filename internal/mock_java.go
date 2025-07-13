@@ -1,4 +1,4 @@
-package testutil
+package internal
 
 import (
 	"fmt"
@@ -7,13 +7,13 @@ import (
 	"path/filepath"
 )
 
-type JavaProcess struct {
-	Cmd      *exec.Cmd
-	ClassDir string
-	Class    string
+type javaMockProcess struct {
+	cmd      *exec.Cmd
+	classDir string
+	class    string
 }
 
-func StartJavaProcess() (*JavaProcess, func(), error) {
+func startJavaProcess() (*javaMockProcess, func(), error) {
 	const className = "TestMain"
 	const javaSource = `
 public class TestMain {
@@ -65,15 +65,15 @@ public class TestMain {
 		os.Remove(classFile)
 	}
 
-	return &JavaProcess{
-		Cmd:      cmdRun,
-		ClassDir: tmpDir,
-		Class:    className,
+	return &javaMockProcess{
+		cmd:      cmdRun,
+		classDir: tmpDir,
+		class:    className,
 	}, cleanup, nil
 }
 
-// CreateSimpleJavaAgent creates a simple Java agent jar that supports both premain and agentmain loading mechanisms.
-func CreateSimpleJavaAgent() (string, func(), error) {
+// createSimpleJavaAgent creates a simple Java agent jar that supports both premain and agentmain loading mechanisms.
+func createSimpleJavaAgent() (string, func(), error) {
 	const agentClassName = "SimpleAgent"
 	agentSource := `
 import java.lang.instrument.Instrumentation;

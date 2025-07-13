@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/XHao/jvmtool/internal/testutil"
 	"github.com/XHao/jvmtool/pkg"
 )
 
@@ -140,7 +139,7 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 		t.Fatalf("failed to get current user: %v", err)
 	}
 
-	p, cleanup, err := testutil.StartJavaProcess()
+	p, cleanup, err := startJavaProcess()
 	if err != nil {
 		t.Skip("failed to start java process:", err)
 	}
@@ -153,12 +152,12 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 	JpsList(opt)
 	found := false
 	for _, l := range getLogs() {
-		if strings.Contains(l, p.Class) {
+		if strings.Contains(l, p.class) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected to find %s in logs, got: %v", p.Class, getLogs())
+		t.Errorf("expected to find %s in logs, got: %v", p.class, getLogs())
 	}
 }
