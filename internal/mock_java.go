@@ -13,7 +13,8 @@ type javaMockProcess struct {
 	class    string
 }
 
-func startJavaProcess() (*javaMockProcess, func(), error) {
+// startJavaProcess starts a Java process running a simple main class, supporting custom JVM arguments.
+func startJavaProcess(jvmArgs ...string) (*javaMockProcess, func(), error) {
 	const className = "TestMain"
 	const javaSource = `
 public class TestMain {
@@ -48,10 +49,13 @@ public class TestMain {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	args := append([]string{}, jvmArgs...)
+	args = append(args, "-cp", tmpDir, className)
+
 	cmdRun := exec.Command(
 		javaPath,
-		"-cp", tmpDir,
-		className,
+		args...,
 	)
 	cmdRun.Dir = tmpDir
 	if err := cmdRun.Start(); err != nil {
@@ -87,6 +91,38 @@ public class ` + agentClassName + ` {
     }
 }
 `
+	return createAgent(agentClassName, agentSource, false)
+}
+
+func createNoAgentMainJavaAgent() (string, func(), error) {
+	const agentClassName = "NoAgentMainAgent"
+	agentSource := `
+import java.lang.instrument.Instrumentation;
+
+public class ` + agentClassName + ` {
+  public static void premain(String agentArgs, Instrumentation inst) {
+        System.out.println("SimpleAgent loaded by premain");
+    }
+}
+`
+	return createAgent(agentClassName, agentSource, false)
+}
+
+func createManifestJavaAgent() (string, func(), error) {
+	const agentClassName = "NoAgentMainAgent"
+	agentSource := `
+import java.lang.instrument.Instrumentation;
+
+public class ` + agentClassName + ` {
+   public static void premain(String agentArgs, Instrumentation inst) {
+        System.out.println("SimpleAgent loaded by premain");
+    }
+}
+`
+	return createAgent(agentClassName, agentSource, true)
+}
+
+func createAgent(agentClassName, agentSource string, manifeatErr bool) (string, func(), error) {
 	tmpDir := os.TempDir()
 	javaFile := filepath.Join(tmpDir, agentClassName+".java")
 	classFile := filepath.Join(tmpDir, agentClassName+".class")
@@ -109,12 +145,15 @@ public class ` + agentClassName + ` {
 		return "", nil, fmt.Errorf("javac error: %v, output: %s", err, string(out))
 	}
 
-	// Write MANIFEST.MF with both Premain-Class and Agent-Class
-	manifestContent := "Manifest-Version: 1.0\nPremain-Class: " + agentClassName + "\nAgent-Class: " + agentClassName + "\n"
+	manifestContent := "Manifest-Version: 1.0\n"
+	if !manifeatErr {
+		// Write MANIFEST.MF with both Premain-Class and Agent-Class
+		manifestContent += "Premain-Class: " + agentClassName + "\nAgent-Class: " + agentClassName + "\n"
+	}
+
 	if err := os.WriteFile(manifestFile, []byte(manifestContent), 0644); err != nil {
 		return "", nil, err
 	}
-
 	// Create jar file
 	jarPath, err := exec.LookPath("jar")
 	if err != nil {
