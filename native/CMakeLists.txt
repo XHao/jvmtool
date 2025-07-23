@@ -1,7 +1,20 @@
 cmake_minimum_required(VERSION 3.10)
 project(jvmtool_native_agent LANGUAGES C CXX)
 
-find_package(JNI REQUIRED)
+# Add custom CMake module path
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# Find JAVA_HOME
+include(FindJavaHome)
+if(NOT JAVA_HOME_FOUND)
+    message(FATAL_ERROR "JAVA_HOME not found. Please install JDK or set JAVA_HOME environment variable.")
+endif()
+
+# Find JNI headers and libraries
+include(FindJNIHeaders)
+if(NOT JNI_FOUND)
+    message(FATAL_ERROR "JNI not found. Please ensure you have a complete JDK installation.")
+endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${JNI_INCLUDE_DIRS})
@@ -11,10 +24,17 @@ file(GLOB AGENT_HEADERS
 )
 file(GLOB AGENT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+)
+
+file(GLOB MODULES_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/modules/*.cpp"
 )
 
-add_library(jvmtool-agent SHARED ${AGENT_HEADERS} ${AGENT_SOURCES})
+add_library(jvmtool-agent SHARED 
+    ${AGENT_HEADERS} 
+    ${AGENT_SOURCES}
+    ${MODULES_SOURCES}
+)
 
 set_target_properties(jvmtool-agent PROPERTIES
     OUTPUT_NAME "jvmtool-agent"

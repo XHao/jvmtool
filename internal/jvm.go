@@ -86,21 +86,44 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 	// Protocol version
 	request = append(request, byte('1'))
 	request = append(request, byte(0))
-	// Command: "load"
-	request = append(request, []byte("load")...)
-	request = append(request, byte(0))
-	// Argument 1: "instrument"
-	request = append(request, []byte("instrument")...)
-	request = append(request, byte(0))
-	// Argument 2: "false"
-	request = append(request, []byte("false")...)
-	request = append(request, byte(0))
-	// Argument 3: agent JAR path (with optional params)
-	request = append(request, []byte(agentPath)...)
-	if params != "" {
-		request = append(request, []byte("="+params)...)
+
+	// Detect if this is a native agent (based on file extension)
+	isNativeAgent := strings.HasSuffix(agentPath, ".so") ||
+		strings.HasSuffix(agentPath, ".dylib") ||
+		strings.HasSuffix(agentPath, ".dll")
+
+	if isNativeAgent {
+		// For native agents, use "load" with the library path directly
+		request = append(request, []byte("load")...)
+		request = append(request, byte(0))
+		// Argument 1: agent library path
+		request = append(request, []byte(agentPath)...)
+		request = append(request, byte(0))
+		// Argument 2: "true" for native agents
+		request = append(request, []byte("true")...)
+		request = append(request, byte(0))
+		// Argument 3: options/parameters
+		if params != "" {
+			request = append(request, []byte(params)...)
+		}
+		request = append(request, byte(0))
+	} else {
+		// For Java agents, use "load" with "instrument"
+		request = append(request, []byte("load")...)
+		request = append(request, byte(0))
+		// Argument 1: "instrument"
+		request = append(request, []byte("instrument")...)
+		request = append(request, byte(0))
+		// Argument 2: "false"
+		request = append(request, []byte("false")...)
+		request = append(request, byte(0))
+		// Argument 3: agent JAR path (with optional params)
+		request = append(request, []byte(agentPath)...)
+		if params != "" {
+			request = append(request, []byte("="+params)...)
+		}
+		request = append(request, byte(0))
 	}
-	request = append(request, byte(0))
 
 	if _, err = unix.Write(fd, request); err != nil {
 		return fmt.Errorf("failed to write attach request to process %v: %v", jp.Pid, err.Error())
@@ -140,11 +163,19 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 	case "0":
 		return nil
 	case "100":
-		return fmt.Errorf("agent load failed, code 100: Agent JAR not found or no Agent-Class attribute")
+		if isNativeAgent {
+			return fmt.Errorf("agent load failed, code 100: Native agent library not found or unable to load")
+		} else {
+			return fmt.Errorf("agent load failed, code 100: Agent JAR not found or no Agent-Class attribute")
+		}
 	case "101":
 		return fmt.Errorf("agent load failed, code 101: Unable to add JAR file to system class path")
 	case "102":
-		return fmt.Errorf("agent load failed, code 102: No agentmain method or agentmain failed")
+		if isNativeAgent {
+			return fmt.Errorf("agent load failed, code 102: Agent_OnAttach function not found or failed")
+		} else {
+			return fmt.Errorf("agent load failed, code 102: No agentmain method or agentmain failed")
+		}
 	}
 	return fmt.Errorf("agent load failed, unknown message: %s", ret[1])
 }

@@ -31,6 +31,8 @@ func run(args []string) int {
 		return runJps(cmdArgs)
 	case "jattach":
 		return runJattach(cmdArgs)
+	case "sa":
+		return runSAAgent(cmdArgs)
 	default:
 		printError(fmt.Sprintf("unknown command: %s", cmd))
 		printHelp()
@@ -58,6 +60,16 @@ func runJattach(args []string) int {
 	return internal.Jattach(opt)
 }
 
+// runSAAgent handles the "sa" command.
+func runSAAgent(args []string) int {
+	opt, err := internal.ParseSAAgentFlags(args)
+	if err != nil {
+		printError(fmt.Sprintf("failed to parse flags: %v", err))
+		return 1
+	}
+	return internal.SAAgent(opt)
+}
+
 // printHelp prints the usage information for the command line tool.
 func printHelp() {
 	fmt.Print(`Usage: jvmtool <command> [options]
@@ -66,6 +78,7 @@ Commands:
   help                Show this help message.
   jps                 List Java processes for the current or specified user.
   jattach             Attach a Java agent to a running Java process.
+  sa                  Perform SA (Serviceability Agent) analysis on a Java process.
 
 jps options:
   -user <username>        Specify the user to list Java processes for. If not provided, uses the current user.
@@ -80,12 +93,22 @@ jattach options:
   -agentpath <path>       Specify the path to the Java agent jar. (required)
   -agentparams <params>   Specify the parameters for the Java agent. (optional)
 
+sa options:
+  -user <username>        Specify the user to analyze. If not provided, uses the current user.
+  -pid <pid>              Specify the pid of the Java process to analyze. (required)
+  -analysis <type>        Analysis type: memory, thread, class, heap, all (default: all)
+  -duration <seconds>     Analysis duration in seconds (default: 30)
+  -output <path>          Output file path (optional, prints to console if not specified)
+
 Examples:
   jvmtool jps
   jvmtool jps -user alice
   jvmtool jps -l -v -m
   jvmtool jattach -pid 12345 -agentpath /path/to/agent.jar
   jvmtool jattach -user alice -pid 12345 -agentpath /path/to/agent.jar -agentparams "foo=bar"
+  jvmtool sa -pid 12345 -analysis memory
+  jvmtool sa -pid 12345 -analysis thread -duration 60
+  jvmtool sa -pid 12345 -analysis all -output analysis.txt
 
 `)
 }
