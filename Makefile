@@ -25,7 +25,7 @@ endif
 
 AGENT_LIB = jvmtool-agent.$(LIB_EXT)
 
-.PHONY: all build build-go build-native test clean package install uninstall install-info help dirs
+.PHONY: all build build-go build-native test clean package install uninstall install-info help dirs format format-check lint
 
 all: build
 
@@ -61,6 +61,19 @@ build-native: dirs
 
 test:
 	go test ./...
+
+# Code formatting and linting targets
+format: build-native
+	@echo "Formatting native code..."
+	cd native && cmake --build build --target format
+
+format-check: build-native
+	@echo "Checking native code format..."
+	cd native && cmake --build build --target format-check
+
+lint: build-native
+	@echo "Running lint checks on native code..."
+	cd native && cmake --build build --target lint
 
 # Create distribution package with proper directory structure
 package: build
@@ -144,6 +157,9 @@ help:
 	@echo "  build-go      Build only the Go binary"
 	@echo "  build-native  Build only the native agent library"
 	@echo "  test          Run Go tests"
+	@echo "  format        Format native C++ code"
+	@echo "  format-check  Check native C++ code formatting"
+	@echo "  lint          Run lint checks on native code"
 	@echo "  package       Create distribution package"
 	@echo "  install       Install to system (requires build first)"
 	@echo "  uninstall     Remove from system"
@@ -156,6 +172,8 @@ help:
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
+	@echo "  make format"
+	@echo "  make format-check"
 	@echo "  make install"
 	@echo "  make install PREFIX=/opt/jvmtool"
 	@echo "  make package"
