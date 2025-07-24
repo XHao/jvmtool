@@ -19,6 +19,30 @@ endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${JNI_INCLUDE_DIRS})
 
+# Generate build-time information
+execute_process(
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_build_info.sh cmake
+    OUTPUT_VARIABLE BUILD_INFO_CMAKE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+
+# Parse the build info and execute the set commands
+string(REPLACE "\n" ";" BUILD_INFO_LINES ${BUILD_INFO_CMAKE})
+foreach(line ${BUILD_INFO_LINES})
+    # Remove any extra whitespace and check if line matches set(...) pattern
+    string(STRIP "${line}" clean_line)
+    if(clean_line MATCHES "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$")
+        # Extract variable name and value
+        string(REGEX REPLACE "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$" "\\1" VAR_NAME "${clean_line}")
+        string(REGEX REPLACE "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$" "\\2" VAR_VALUE "${clean_line}")
+        # Remove quotes from the value if present
+        string(REGEX REPLACE "^\"(.*)\"$" "\\1" VAR_VALUE "${VAR_VALUE}")
+        set(${VAR_NAME} "${VAR_VALUE}")
+        message(STATUS "Build info: ${VAR_NAME} = ${VAR_VALUE}")
+    endif()
+endforeach()
+
 file(GLOB AGENT_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
@@ -34,6 +58,14 @@ add_library(jvmtool-agent SHARED
     ${AGENT_HEADERS} 
     ${AGENT_SOURCES}
     ${MODULES_SOURCES}
+)
+
+# Add compile definitions for build info
+target_compile_definitions(jvmtool-agent PRIVATE
+    JVMTOOL_VERSION="${JVMTOOL_VERSION}"
+    JVMTOOL_SALT="${JVMTOOL_SALT}"
+    JVMTOOL_BUILD="${JVMTOOL_BUILD}"
+    JVMTOOL_CHECKSUM=${JVMTOOL_CHECKSUM}
 )
 
 set_target_properties(jvmtool-agent PROPERTIES

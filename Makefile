@@ -37,10 +37,15 @@ dirs:
 	@mkdir -p $(NATIVE_BUILD_DIR)
 
 # Build both Go binary and native agent
-build: dirs build-go build-native
+build: dirs generate-build-info build-go build-native restore-placeholders
 
-# Build Go binary
-build-go: dirs
+# Generate build-time information for both Go and native code
+generate-build-info:
+	@echo "Generating build information..."
+	@./scripts/generate_build_info.sh update-go
+
+# Build Go binary (depends on build info generation)
+build-go: dirs generate-build-info
 	@echo "Building Go binary..."
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(DIST_DIR)/bin/
@@ -58,6 +63,11 @@ build-native: dirs
 	else \
 		echo "Warning: Native agent library not found after build"; \
 	fi
+
+# Restore Go constants to placeholder form after build
+restore-placeholders:
+	@echo "Restoring Go constants to placeholder form..."
+	@./scripts/generate_build_info.sh restore
 
 test:
 	go test ./...

@@ -181,6 +181,12 @@ func findNativeAgent() (string, error) {
 		}
 
 		if pkg.PathExists(absPath) {
+			// Validate the agent library before returning
+			validator := pkg.NewDefaultAgentValidator()
+			if err := validator.ValidateLibrary(absPath); err != nil {
+				log(fmt.Sprintf("Agent validation failed for %s: %v", absPath, err))
+				continue // Try next path
+			}
 			return absPath, nil
 		}
 	}
