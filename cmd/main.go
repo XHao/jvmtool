@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -28,11 +29,11 @@ func run(args []string) int {
 		printHelp()
 		return 0
 	case "jps":
-		return runJps(cmdArgs)
+		return runCommandWithFlags(internal.ParseJpsFlags, internal.JpsList, cmdArgs)
 	case "jattach":
-		return runJattach(cmdArgs)
+		return runCommandWithFlags(internal.ParseJattachFlags, internal.Jattach, cmdArgs)
 	case "sa":
-		return runSAAgent(cmdArgs)
+		return runCommandWithFlags(internal.ParseSAAgentFlags, internal.SAAgent, cmdArgs)
 	default:
 		printError(fmt.Sprintf("unknown command: %s", cmd))
 		printHelp()
@@ -40,34 +41,22 @@ func run(args []string) int {
 	}
 }
 
-// runJps handles the "jps" command.
-func runJps(args []string) int {
-	opt, err := internal.ParseJpsFlags(args)
+// runCommandWithFlags is a generic helper for running commands with flag parsing.
+func runCommandWithFlags[T any](
+	parseFunc func([]string) (T, error),
+	execFunc func(T) int,
+	args []string,
+) int {
+	opt, err := parseFunc(args)
 	if err != nil {
+		if err == flag.ErrHelp {
+			// Help was requested and already printed, exit successfully
+			return 0
+		}
 		printError(fmt.Sprintf("failed to parse flags: %v", err))
 		return 1
 	}
-	return internal.JpsList(opt)
-}
-
-// runJattach handles the "jattach" command.
-func runJattach(args []string) int {
-	opt, err := internal.ParseJattachFlags(args)
-	if err != nil {
-		printError(fmt.Sprintf("failed to parse flags: %v", err))
-		return 1
-	}
-	return internal.Jattach(opt)
-}
-
-// runSAAgent handles the "sa" command.
-func runSAAgent(args []string) int {
-	opt, err := internal.ParseSAAgentFlags(args)
-	if err != nil {
-		printError(fmt.Sprintf("failed to parse flags: %v", err))
-		return 1
-	}
-	return internal.SAAgent(opt)
+	return execFunc(opt)
 }
 
 // printHelp prints the usage information for the command line tool.

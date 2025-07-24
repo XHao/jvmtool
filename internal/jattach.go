@@ -3,12 +3,8 @@ package internal
 import (
 	"flag"
 	"fmt"
-	"os"
-	"os/user"
-	"strconv"
 
 	"github.com/XHao/jvmtool/pkg"
-	"github.com/shirou/gopsutil/process"
 )
 
 type JattachOption struct {
@@ -41,37 +37,20 @@ func (opt *JattachOption) JattachValidate() error {
 	if opt.AgentPath == "" {
 		return fmt.Errorf("agentpath is required")
 	}
-	if opt.User == "" {
-		currentUser, err := user.Current()
-		if err != nil {
-			return err
-		}
-		opt.User = currentUser.Username
-	} else {
-		_, err := user.Lookup(opt.User)
-		if err != nil {
-			return err
-		}
-	}
-	if opt.Pid == "" {
-		return fmt.Errorf("pid is required")
-	}
 
-	_, err := process.NewProcess(toInt32(opt.Pid))
+	// Validate user
+	user, err := pkg.ValidateUser(opt.User)
 	if err != nil {
-		return fmt.Errorf("process not found")
+		return err
 	}
-	pidFile := os.TempDir() + "/hsperfdata_" + opt.User + "/" + fmt.Sprint(opt.Pid)
-	if !pkg.PathExists(pidFile) {
-		return fmt.Errorf("pid does not belong to the specified user")
-	}
-	return nil
-}
+	opt.User = user
 
-// toInt32 converts a string to int32, returns 0 if conversion fails.
-func toInt32(s string) int32 {
-	n, _ := strconv.Atoi(s)
-	return int32(n)
+	// Validate Java process
+	validator := &pkg.JavaProcessValidator{
+		User: opt.User,
+		Pid:  opt.Pid,
+	}
+	return validator.ValidateJavaProcess()
 }
 
 // Jattach performs the attach operation to a Java process specified by the JattachOption.
@@ -82,7 +61,7 @@ func Jattach(option JattachOption) int {
 	}
 
 	jp := &JvmProcess{
-		Pid: toInt32(option.Pid),
+		Pid: pkg.Pid(option.Pid),
 	}
 
 	if err := jp.checkSocket(); err != nil {

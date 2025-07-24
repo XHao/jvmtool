@@ -119,13 +119,13 @@ func TestJpsList_NoJavaProcess(t *testing.T) {
 	JpsList(opt)
 	noProc := false
 	for _, l := range getLogs() {
-		if l == "no java process" {
+		if strings.Contains(l, "no java processes found") {
 			noProc = true
 			break
 		}
 	}
 	if !noProc {
-		t.Errorf("expected 'no java process' log, got logs: %v", getLogs())
+		t.Errorf("expected 'no java processes found' log, got logs: %v", getLogs())
 	}
 }
 

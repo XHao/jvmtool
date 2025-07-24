@@ -92,38 +92,34 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 		strings.HasSuffix(agentPath, ".dylib") ||
 		strings.HasSuffix(agentPath, ".dll")
 
+	// Build load command
+	request = append(request, []byte("load")...)
+	request = append(request, byte(0))
+
+	// Determine arguments based on agent type
+	var arg1, arg2, arg3 string
 	if isNativeAgent {
-		// For native agents, use "load" with the library path directly
-		request = append(request, []byte("load")...)
-		request = append(request, byte(0))
-		// Argument 1: agent library path
-		request = append(request, []byte(agentPath)...)
-		request = append(request, byte(0))
-		// Argument 2: "true" for native agents
-		request = append(request, []byte("true")...)
-		request = append(request, byte(0))
-		// Argument 3: options/parameters
-		if params != "" {
-			request = append(request, []byte(params)...)
-		}
-		request = append(request, byte(0))
+		// For native agents: agentPath, "true", params
+		arg1 = agentPath
+		arg2 = "true"
+		arg3 = params
 	} else {
-		// For Java agents, use "load" with "instrument"
-		request = append(request, []byte("load")...)
-		request = append(request, byte(0))
-		// Argument 1: "instrument"
-		request = append(request, []byte("instrument")...)
-		request = append(request, byte(0))
-		// Argument 2: "false"
-		request = append(request, []byte("false")...)
-		request = append(request, byte(0))
-		// Argument 3: agent JAR path (with optional params)
-		request = append(request, []byte(agentPath)...)
+		// For Java agents: "instrument", "false", agentPath[=params]
+		arg1 = "instrument"
+		arg2 = "false"
+		arg3 = agentPath
 		if params != "" {
-			request = append(request, []byte("="+params)...)
+			arg3 += "=" + params
 		}
-		request = append(request, byte(0))
 	}
+
+	// Write arguments
+	request = append(request, []byte(arg1)...)
+	request = append(request, byte(0))
+	request = append(request, []byte(arg2)...)
+	request = append(request, byte(0))
+	request = append(request, []byte(arg3)...)
+	request = append(request, byte(0))
 
 	if _, err = unix.Write(fd, request); err != nil {
 		return fmt.Errorf("failed to write attach request to process %v: %v", jp.Pid, err.Error())

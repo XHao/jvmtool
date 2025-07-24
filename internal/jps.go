@@ -1,13 +1,8 @@
 package internal
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"os"
-	"os/user"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/XHao/jvmtool/pkg"
@@ -45,18 +40,11 @@ type JpsOption struct {
 // JpsValidate checks if the JpsOption fields are valid.
 // Currently, it validates the User field if provided.
 func (opt *JpsOption) JpsValidate() error {
-	if opt.User != "" {
-		_, err := user.Lookup(opt.User)
-		if err != nil {
-			return errors.New("user does not exist")
-		}
-	} else {
-		if current, err := user.Current(); err != nil {
-			return errors.New("current user check failed")
-		} else {
-			opt.User = current.Username
-		}
+	user, err := pkg.ValidateUser(opt.User)
+	if err != nil {
+		return err
 	}
+	opt.User = user
 	return nil
 }
 
@@ -68,49 +56,49 @@ func JpsList(option JpsOption) int {
 		return 1
 	}
 
-	finded := []JvmProcess{}
-	tempDir := os.TempDir()
-
-	namePatternPrefix := tempDir + "/hsperfdata_" + option.User + "/"
-	fileNamePattern := namePatternPrefix + "*"
-	pids := []int32{}
-
-	files, err := filepath.Glob(fileNamePattern)
-	if err != nil || len(files) == 0 {
-		log("no java process")
+	pids, err := pkg.DiscoverJavaProcesses(option.User)
+	if err != nil {
+		log(fmt.Sprintf("failed to discover java processes: %v", err))
 		return 1
-	}
-	for _, file := range files {
-		index := strings.LastIndex(file, "/") + 1
-
-		if pid, err := strconv.Atoi(file[index:]); err != nil {
-			continue
-		} else if exist, _ := pkg.PidExists(int32(pid)); !exist {
-			continue
-		} else {
-			pids = append(pids, int32(pid))
-		}
 	}
 
 	if len(pids) == 0 {
-		log("no java process")
-		return 1
+		if !option.Quiet {
+			log("no java processes found for user: " + option.User)
+		}
+		return 0
 	}
+
+	processes := collectProcessInfo(pids, option)
+	for _, p := range processes {
+		printJps(p, option)
+	}
+	return 0
+}
+
+// collectProcessInfo collects detailed information for the given PIDs
+func collectProcessInfo(pids []int32, option JpsOption) []JvmProcess {
+	var processes []JvmProcess
 	for _, pid := range pids {
 		p, err := process.NewProcess(pid)
 		if err != nil {
 			continue
 		}
-		cmdSlice, _ := p.CmdlineSlice()
+		cmdSlice, err := p.CmdlineSlice()
+		if err != nil {
+			continue
+		}
 		cmd := strings.Join(cmdSlice, " ")
 		mainClassOrJar, vmArgs, mainArgs := analyzeVmCmd(cmdSlice, option)
-		finded = append(finded, JvmProcess{Pid: p.Pid, Cmd: cmd, mainClassOrJar: mainClassOrJar, vmArgs: vmArgs, mainArgs: mainArgs})
+		processes = append(processes, JvmProcess{
+			Pid:            p.Pid,
+			Cmd:            cmd,
+			mainClassOrJar: mainClassOrJar,
+			vmArgs:         vmArgs,
+			mainArgs:       mainArgs,
+		})
 	}
-
-	for _, p := range finded {
-		printJps(p, option)
-	}
-	return 0
+	return processes
 }
 
 // printJps prints the information of a Java process according to the JpsOption.
@@ -119,26 +107,35 @@ func printJps(process JvmProcess, option JpsOption) {
 		log(fmt.Sprintf("%d", process.Pid))
 		return
 	}
-	output := fmt.Sprintf("%d", process.Pid)
+
+	var parts []string
+	parts = append(parts, fmt.Sprintf("%d", process.Pid))
+
 	if option.ShowLong {
-		output += fmt.Sprintf(" %s", process.Cmd)
+		parts = append(parts, process.Cmd)
 	} else {
-		output += fmt.Sprintf(" %s", process.mainClassOrJar)
+		parts = append(parts, process.mainClassOrJar)
 	}
+
 	if option.ShowVMArgs && process.vmArgs != "" {
-		output += fmt.Sprintf(" %s", strings.TrimSpace(process.vmArgs))
+		parts = append(parts, strings.TrimSpace(process.vmArgs))
 	}
+
 	if option.ShowArgs && process.mainArgs != "" {
-		output += fmt.Sprintf(" %s", process.mainArgs)
+		parts = append(parts, process.mainArgs)
 	}
-	log(output)
+
+	log(strings.Join(parts, " "))
 }
 
 func analyzeVmCmd(cmdSlice []string, option JpsOption) (mainClassOrJar string, vmArgs string, mainArgs string) {
 	if len(cmdSlice) < 2 {
 		return
 	}
+
+	var vmArgsList []string
 	skipNext := false
+
 	for i := 1; i < len(cmdSlice); i++ {
 		arg := cmdSlice[i]
 		if skipNext {
@@ -158,7 +155,7 @@ func analyzeVmCmd(cmdSlice []string, option JpsOption) (mainClassOrJar string, v
 		}
 		if strings.HasPrefix(arg, "-") {
 			if option.ShowVMArgs {
-				vmArgs += arg + " "
+				vmArgsList = append(vmArgsList, arg)
 			}
 			continue
 		}
@@ -170,5 +167,10 @@ func analyzeVmCmd(cmdSlice []string, option JpsOption) (mainClassOrJar string, v
 			break
 		}
 	}
+
+	if option.ShowVMArgs && len(vmArgsList) > 0 {
+		vmArgs = strings.Join(vmArgsList, " ")
+	}
+
 	return
 }

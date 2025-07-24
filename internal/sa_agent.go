@@ -5,14 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/XHao/jvmtool/pkg"
-	"github.com/shirou/gopsutil/process"
 )
 
 // SAAgentOption
@@ -48,33 +46,23 @@ func ParseSAAgentFlags(args []string) (SAAgentOption, error) {
 
 // SAAgentValidate
 func (opt *SAAgentOption) SAAgentValidate() error {
-	if opt.User == "" {
-		currentUser, err := user.Current()
-		if err != nil {
-			return err
-		}
-		opt.User = currentUser.Username
-	} else {
-		_, err := user.Lookup(opt.User)
-		if err != nil {
-			return err
-		}
-	}
-
-	if opt.Pid == "" {
-		return fmt.Errorf("pid is required")
-	}
-
-	_, err := process.NewProcess(toInt32(opt.Pid))
+	// Validate user
+	user, err := pkg.ValidateUser(opt.User)
 	if err != nil {
-		return fmt.Errorf("process not found")
+		return err
+	}
+	opt.User = user
+
+	// Validate Java process
+	validator := &pkg.JavaProcessValidator{
+		User: opt.User,
+		Pid:  opt.Pid,
+	}
+	if err := validator.ValidateJavaProcess(); err != nil {
+		return err
 	}
 
-	pidFile := os.TempDir() + "/hsperfdata_" + opt.User + "/" + fmt.Sprint(opt.Pid)
-	if !pkg.PathExists(pidFile) {
-		return fmt.Errorf("pid does not belong to the specified user")
-	}
-
+	// Validate analysis type
 	validTypes := map[string]bool{
 		"memory": true,
 		"thread": true,
@@ -139,14 +127,8 @@ func SAAgent(option SAAgentOption) int {
 }
 
 // findNativeAgent searches for the native agent library in various locations
+// following the project's installation and build structure
 func findNativeAgent() (string, error) {
-	// Get the directory of the current executable
-	execPath, err := os.Executable()
-	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %v", err)
-	}
-	execDir := filepath.Dir(execPath)
-
 	// Detect OS and set library extension
 	var libExt string
 	switch runtime.GOOS {
@@ -162,13 +144,62 @@ func findNativeAgent() (string, error) {
 
 	agentName := "jvmtool-agent." + libExt
 
-	// Search paths in order of preference
-	searchPath := filepath.Join(execDir, "..", "lib", agentName)
-	absPath, err := filepath.Abs(searchPath)
+	// Get the directory of the current executable
+	execPath, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("native agent library not found in any search paths")
+		return "", fmt.Errorf("failed to get executable path: %v", err)
 	}
-	return absPath, nil
+	execDir := filepath.Dir(execPath)
+
+	// Search paths in order of preference
+	searchPaths := []string{
+		// 1. Same installation prefix as binary (if installed via make install)
+		// If binary is at PREFIX/bin/jvmtool, look for PREFIX/lib/agent
+		filepath.Join(filepath.Dir(execDir), "lib", agentName),
+
+		// 2. Standard system installation paths (following FHS)
+		filepath.Join("/usr/local/lib", agentName),
+		filepath.Join("/usr/lib", agentName),
+		filepath.Join("/opt/local/lib", agentName), // MacPorts
+
+		// 3. Development/distribution build path (make build output)
+		filepath.Join(execDir, "..", "lib", agentName),
+
+		// 4. Same directory as executable (portable installation)
+		filepath.Join(execDir, agentName),
+
+		// 5. Local development build paths
+		filepath.Join(execDir, "..", "native", "build", agentName),
+		filepath.Join(execDir, "..", "..", "native", "build", agentName),
+	}
+
+	// Search for the agent library
+	for _, path := range searchPaths {
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+
+		if pkg.PathExists(absPath) {
+			return absPath, nil
+		}
+	}
+
+	// If not found, provide helpful error message
+	return "", fmt.Errorf("native agent library '%s' not found in any of the search paths:\n%s",
+		agentName, joinSearchPaths(searchPaths))
+}
+
+// joinSearchPaths joins paths with newlines for error messages
+func joinSearchPaths(paths []string) string {
+	result := ""
+	for i, path := range paths {
+		if i > 0 {
+			result += "\n"
+		}
+		result += path
+	}
+	return result
 }
 
 // displayTempFileOutput reads and displays the content of a temporary output file
