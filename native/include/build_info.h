@@ -16,9 +16,6 @@ extern "C" {
 // Build metadata structure
 struct jvmtool_metadata {
     char magic[16];          // "JVMTOOLLOOTMVJ\0"
-    char version[32];       // Version string
-    char salt[33];          // Build-time salt (32 chars + null)
-    char build_time[32];    // ISO 8601 timestamp
     uint32_t checksum;      // Simple checksum of above fields
 };
 

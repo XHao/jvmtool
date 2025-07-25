@@ -86,7 +86,7 @@ func SAAgent(option SAAgentOption) int {
 
 	agentPath, err := findNativeAgent()
 	if err != nil {
-		log(fmt.Sprintf("Native agent not found (%v), falling back to Java agent", err))
+		log(fmt.Sprintf("Native agent not found (%v)", err))
 		return 1
 	}
 
@@ -161,16 +161,6 @@ func findNativeAgent() (string, error) {
 		filepath.Join("/usr/local/lib", agentName),
 		filepath.Join("/usr/lib", agentName),
 		filepath.Join("/opt/local/lib", agentName), // MacPorts
-
-		// 3. Development/distribution build path (make build output)
-		filepath.Join(execDir, "..", "lib", agentName),
-
-		// 4. Same directory as executable (portable installation)
-		filepath.Join(execDir, agentName),
-
-		// 5. Local development build paths
-		filepath.Join(execDir, "..", "native", "build", agentName),
-		filepath.Join(execDir, "..", "..", "native", "build", agentName),
 	}
 
 	// Search for the agent library
@@ -184,8 +174,8 @@ func findNativeAgent() (string, error) {
 			// Validate the agent library before returning
 			validator := pkg.NewDefaultAgentValidator()
 			if err := validator.ValidateLibrary(absPath); err != nil {
-				log(fmt.Sprintf("Agent validation failed for %s: %v", absPath, err))
-				continue // Try next path
+				log(fmt.Sprintf("Agent validation failed for %s", absPath))
+				continue
 			}
 			return absPath, nil
 		}

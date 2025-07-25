@@ -4,27 +4,25 @@ import (
 	"bytes"
 	"debug/elf"
 	"debug/macho"
+	"debug/pe"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"runtime"
 	"unsafe"
 )
 
 // AgentMetadata represents the metadata structure embedded in the agent library
 type AgentMetadata struct {
-	Magic     [16]byte // "JVMTOOLLOOTMVJ\0\0"
-	Version   [32]byte // Version string
-	Salt      [33]byte // Build-time salt (32 chars + null)
-	BuildTime [32]byte // ISO 8601 timestamp
-	Checksum  uint32   // Simple checksum of above fields
+	Magic    [16]byte // "JVMTOOLLOOTMVJ\0\0"
+	Checksum uint32   // Simple checksum of above fields
 }
 
 // Expected agent library metadata - these will be set during build
 const (
-	ExpectedAgentVersion  = "{{JVMTOOL_VERSION}}"
-	ExpectedAgentSalt     = "{{JVMTOOL_SALT}}"
-	ExpectedAgentBuild    = "{{JVMTOOL_BUILD}}"
-	ExpectedAgentChecksum = 0 // {{JVMTOOL_CHECKSUM}}
+	AgentVersion = "{{JVMTOOL_VERSION}}"
+	AgentSalt    = "{{JVMTOOL_SALT}}"
+	AgentBuild   = "{{JVMTOOL_BUILD}}"
 )
 
 // MetadataExtractor defines the interface for extracting metadata from agent libraries
@@ -37,21 +35,9 @@ type AgentValidator struct {
 	extractor MetadataExtractor
 }
 
-// NewAgentValidator creates a new validator with the given extractor
-func NewAgentValidator(extractor MetadataExtractor) *AgentValidator {
-	return &AgentValidator{extractor: extractor}
-}
-
 // NewDefaultAgentValidator creates a validator with the real metadata extractor
 func NewDefaultAgentValidator() *AgentValidator {
 	return &AgentValidator{extractor: &RealMetadataExtractor{}}
-}
-
-// validationRule defines a single validation rule
-type validationRule struct {
-	name     string
-	actual   interface{}
-	expected interface{}
 }
 
 // ValidateLibrary validates the agent library against expected build information
@@ -62,49 +48,20 @@ func (av *AgentValidator) ValidateLibrary(libPath string) error {
 		return fmt.Errorf("failed to extract agent metadata: %v", err)
 	}
 
-	// Define validation rules
-	rules := []validationRule{
-		{"version", metadata.GetVersion(), ExpectedAgentVersion},
-		{"salt", metadata.GetSalt(), ExpectedAgentSalt},
-		{"build time", metadata.GetBuildTime(), ExpectedAgentBuild},
-		{"checksum", metadata.Checksum, ExpectedAgentChecksum},
-	}
+	expectedChecksum := calculateChecksum(AgentVersion, AgentSalt, AgentBuild)
 
-	// Validate all rules
-	for _, rule := range rules {
-		if rule.actual != rule.expected {
-			return fmt.Errorf("agent %s mismatch: expected %v, got %v",
-				rule.name, rule.expected, rule.actual)
-		}
+	// Verify checksum matches
+	if metadata.Checksum != expectedChecksum {
+		return fmt.Errorf("checksum mismatch")
 	}
 
 	return nil
 }
 
-// getExpectedValues returns the expected values map for metadata info
-func getExpectedValues() map[string]interface{} {
-	return map[string]interface{}{
-		"version":    ExpectedAgentVersion,
-		"salt":       ExpectedAgentSalt,
-		"build_time": ExpectedAgentBuild,
-		"checksum":   ExpectedAgentChecksum,
-	}
-}
-
-// GetMetadataInfo returns metadata information for debugging
-func (av *AgentValidator) GetMetadataInfo(libPath string) (map[string]interface{}, error) {
-	metadata, err := av.extractor.ExtractMetadata(libPath)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]interface{}{
-		"version":    metadata.GetVersion(),
-		"salt":       metadata.GetSalt(),
-		"build_time": metadata.GetBuildTime(),
-		"checksum":   metadata.Checksum,
-		"expected":   getExpectedValues(),
-	}, nil
+// calculateChecksum computes a simple checksum for the given metadata fields
+func calculateChecksum(version, salt, buildTime string) uint32 {
+	combined := version + "|" + salt + "|" + buildTime
+	return crc32.ChecksumIEEE([]byte(combined))
 }
 
 // RealMetadataExtractor implements MetadataExtractor using actual binary parsing
@@ -116,9 +73,10 @@ func (r *RealMetadataExtractor) ExtractMetadata(libPath string) (*AgentMetadata,
 		return extractMetadataMachO(libPath)
 	case "linux":
 		return extractMetadataELF(libPath)
+	case "windows":
+		return extractMetadataPE(libPath)
 	default:
-		// Fallback to pattern search for unsupported platforms
-		return extractMetadataByPattern(libPath)
+		return nil, fmt.Errorf("pattern-based metadata extraction not implemented yet")
 	}
 }
 
@@ -166,13 +124,31 @@ func extractMetadataELF(libPath string) (*AgentMetadata, error) {
 	return parseMetadataFromBytes(data)
 }
 
-// extractMetadataByPattern searches for metadata using pattern matching (fallback)
-func extractMetadataByPattern(libPath string) (*AgentMetadata, error) {
-	// This is a fallback method that searches for the magic bytes in the file
-	// It's less reliable but works on platforms without specific binary format support
+// extractMetadataPE extracts metadata from PE binaries (Windows)
+func extractMetadataPE(libPath string) (*AgentMetadata, error) {
+	file, err := pe.Open(libPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open PE file: %v", err)
+	}
+	defer file.Close()
 
-	// For now, return an error - this can be implemented if needed
-	return nil, fmt.Errorf("pattern-based metadata extraction not implemented yet")
+	sectionNames := []string{".jvmtool", ".data", ".rdata"}
+
+	for _, sectionName := range sectionNames {
+		section := file.Section(sectionName)
+		if section != nil {
+			data, err := section.Data()
+			if err != nil {
+				continue // Try next section
+			}
+
+			if metadata, err := parseMetadataFromBytes(data); err == nil {
+				return metadata, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("jvmtool metadata not found in PE file sections")
 }
 
 // parseMetadataFromBytes parses the AgentMetadata structure from raw bytes
@@ -198,25 +174,4 @@ func parseMetadataFromBytes(data []byte) (*AgentMetadata, error) {
 	}
 
 	return metadata, nil
-}
-
-// String methods for metadata fields
-func (m *AgentMetadata) GetVersion() string {
-	return nullTerminatedString(m.Version[:])
-}
-
-func (m *AgentMetadata) GetSalt() string {
-	return nullTerminatedString(m.Salt[:])
-}
-
-func (m *AgentMetadata) GetBuildTime() string {
-	return nullTerminatedString(m.BuildTime[:])
-}
-
-// nullTerminatedString converts a null-terminated byte array to a string
-func nullTerminatedString(data []byte) string {
-	if i := bytes.IndexByte(data, 0); i >= 0 {
-		return string(data[:i])
-	}
-	return string(data)
 }

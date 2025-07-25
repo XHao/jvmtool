@@ -15,9 +15,6 @@ extern "C" {
 #endif
     const struct jvmtool_metadata jvmtool_build_info = {
         JVMTOOL_MAGIC,
-        JVMTOOL_VERSION,
-        JVMTOOL_SALT, 
-        JVMTOOL_BUILD,
         JVMTOOL_CHECKSUM
     };
 }

@@ -19,13 +19,20 @@ endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${JNI_INCLUDE_DIRS})
 
-# Generate build-time information
+# Generate build-time information securely
 execute_process(
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_build_info.sh cmake
+    COMMAND env USE_CACHED_BUILD_INFO=1 ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_build_info.sh cmake
     OUTPUT_VARIABLE BUILD_INFO_CMAKE
+    ERROR_VARIABLE BUILD_INFO_ERROR
     OUTPUT_STRIP_TRAILING_WHITESPACE
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    RESULT_VARIABLE BUILD_INFO_RESULT
 )
+
+# Check if build info generation was successful
+if(NOT BUILD_INFO_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to generate build info: ${BUILD_INFO_ERROR}")
+endif()
 
 # Parse the build info and execute the set commands
 string(REPLACE "\n" ";" BUILD_INFO_LINES ${BUILD_INFO_CMAKE})
@@ -39,9 +46,17 @@ foreach(line ${BUILD_INFO_LINES})
         # Remove quotes from the value if present
         string(REGEX REPLACE "^\"(.*)\"$" "\\1" VAR_VALUE "${VAR_VALUE}")
         set(${VAR_NAME} "${VAR_VALUE}")
-        message(STATUS "Build info: ${VAR_NAME} = ${VAR_VALUE}")
+        # Only show checksum confirmation in build output for security
+        if(VAR_NAME STREQUAL "JVMTOOL_CHECKSUM")
+            message(STATUS "Build info: Checksum generated successfully")
+        endif()
     endif()
 endforeach()
+
+# Verify that required checksum is available
+if(NOT DEFINED JVMTOOL_CHECKSUM)
+    message(FATAL_ERROR "JVMTOOL_CHECKSUM not defined in build info")
+endif()
 
 file(GLOB AGENT_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
@@ -62,9 +77,6 @@ add_library(jvmtool-agent SHARED
 
 # Add compile definitions for build info
 target_compile_definitions(jvmtool-agent PRIVATE
-    JVMTOOL_VERSION="${JVMTOOL_VERSION}"
-    JVMTOOL_SALT="${JVMTOOL_SALT}"
-    JVMTOOL_BUILD="${JVMTOOL_BUILD}"
     JVMTOOL_CHECKSUM=${JVMTOOL_CHECKSUM}
 )
 

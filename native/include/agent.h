@@ -10,7 +10,6 @@ class AgentModule {
     virtual ~AgentModule() = default;
     virtual void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) = 0;
 
-    // Non-copyable and non-movable
     AgentModule(const AgentModule&) = delete;
     AgentModule& operator=(const AgentModule&) = delete;
     AgentModule(AgentModule&&) = delete;
@@ -30,12 +29,10 @@ class AgentManager {
     std::vector<AgentModule*> modules_;
     std::mutex modules_mutex_;
 
-    // Make it a singleton
     AgentManager() = default;
     ~AgentManager() = default;
 
   public:
-    // Explicitly delete copy/move constructors and assignment operators
     AgentManager(const AgentManager&) = delete;
     AgentManager& operator=(const AgentManager&) = delete;
     AgentManager(AgentManager&&) = delete;

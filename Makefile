@@ -37,23 +37,24 @@ dirs:
 	@mkdir -p $(NATIVE_BUILD_DIR)
 
 # Build both Go binary and native agent
-build: dirs generate-build-info build-go build-native restore-placeholders
+build: dirs build-go build-native clean-build-info
 
-# Generate build-time information for both Go and native code
+# Generate build-time information for both Go and native code  
 generate-build-info:
 	@echo "Generating build information..."
-	@./scripts/generate_build_info.sh update-go
+	@./scripts/generate_build_info.sh all > /dev/null
 
-# Build Go binary (depends on build info generation)
+# Build Go binary (with build info injection)
 build-go: dirs generate-build-info
 	@echo "Building Go binary..."
+	@USE_CACHED_BUILD_INFO=1 ./scripts/generate_build_info.sh go >/dev/null
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(DIST_DIR)/bin/
 
 # Build native agent library
-build-native: dirs
+build-native: dirs generate-build-info
 	@echo "Building native agent library..."
-	@cd $(NATIVE_BUILD_DIR) && cmake .. && make jvmtool-agent
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. && make jvmtool-agent
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
 		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
 		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
@@ -64,10 +65,10 @@ build-native: dirs
 		echo "Warning: Native agent library not found after build"; \
 	fi
 
-# Restore Go constants to placeholder form after build
-restore-placeholders:
-	@echo "Restoring Go constants to placeholder form..."
-	@./scripts/generate_build_info.sh restore
+# Clean build information and restore security placeholders
+clean-build-info:
+	@echo "Cleaning build information and restoring security placeholders..."
+	@./scripts/generate_build_info.sh clean
 
 test:
 	go test ./...
@@ -191,4 +192,6 @@ help:
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(NATIVE_BUILD_DIR)
+	@./scripts/generate_build_info.sh clean 2>/dev/null || true
+	@./scripts/security_check.sh 2>/dev/null || true
 	go clean
