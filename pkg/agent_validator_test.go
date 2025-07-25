@@ -199,7 +199,7 @@ func contains(s, substr string) bool {
 		})()))
 }
 
-func TestRealMetadataExtractorPlatformSupport(t *testing.T) {
+func TestRealMetadataExtractorWithNonExistentFile(t *testing.T) {
 	extractor := &RealMetadataExtractor{}
 
 	// Test that the extractor can handle non-existent files appropriately
@@ -210,42 +210,6 @@ func TestRealMetadataExtractorPlatformSupport(t *testing.T) {
 
 	// The error should indicate file access issue
 	t.Logf("Got expected error for non-existent file: %v", err)
-}
-
-func TestExtractMetadataPEError(t *testing.T) {
-	// Test PE extraction with non-existent file
-	_, err := extractMetadataPE("non-existent-file.dll")
-	if err == nil {
-		t.Error("Expected error for non-existent PE file")
-	}
-
-	if !contains(err.Error(), "failed to open PE file") {
-		t.Errorf("Expected 'failed to open PE file' error, got: %v", err)
-	}
-}
-
-func TestExtractMetadataMachOError(t *testing.T) {
-	// Test Mach-O extraction with non-existent file
-	_, err := extractMetadataMachO("non-existent-file.dylib")
-	if err == nil {
-		t.Error("Expected error for non-existent Mach-O file")
-	}
-
-	if !contains(err.Error(), "failed to open Mach-O file") {
-		t.Errorf("Expected 'failed to open Mach-O file' error, got: %v", err)
-	}
-}
-
-func TestExtractMetadataELFError(t *testing.T) {
-	// Test ELF extraction with non-existent file
-	_, err := extractMetadataELF("non-existent-file.so")
-	if err == nil {
-		t.Error("Expected error for non-existent ELF file")
-	}
-
-	if !contains(err.Error(), "failed to open ELF file") {
-		t.Errorf("Expected 'failed to open ELF file' error, got: %v", err)
-	}
 }
 
 func TestParseMetadataFromBytesTooSmall(t *testing.T) {

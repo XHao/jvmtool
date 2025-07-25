@@ -2,13 +2,9 @@ package pkg
 
 import (
 	"bytes"
-	"debug/elf"
-	"debug/macho"
-	"debug/pe"
 	"encoding/binary"
 	"fmt"
 	"hash/crc32"
-	"runtime"
 	"unsafe"
 )
 
@@ -68,87 +64,7 @@ func calculateChecksum(version, salt, buildTime string) uint32 {
 type RealMetadataExtractor struct{}
 
 func (r *RealMetadataExtractor) ExtractMetadata(libPath string) (*AgentMetadata, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		return extractMetadataMachO(libPath)
-	case "linux":
-		return extractMetadataELF(libPath)
-	case "windows":
-		return extractMetadataPE(libPath)
-	default:
-		return nil, fmt.Errorf("pattern-based metadata extraction not implemented yet")
-	}
-}
-
-// extractMetadataMachO extracts metadata from Mach-O binaries (macOS)
-func extractMetadataMachO(libPath string) (*AgentMetadata, error) {
-	file, err := macho.Open(libPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open Mach-O file: %v", err)
-	}
-	defer file.Close()
-
-	// Look for our custom section in __DATA segment
-	for _, section := range file.Sections {
-		if section.Seg == "__DATA" && section.Name == "__jvmtool" {
-			data, err := section.Data()
-			if err != nil {
-				return nil, fmt.Errorf("failed to read section data: %v", err)
-			}
-			return parseMetadataFromBytes(data)
-		}
-	}
-
-	return nil, fmt.Errorf("jvmtool metadata section not found in Mach-O file")
-}
-
-// extractMetadataELF extracts metadata from ELF binaries (Linux)
-func extractMetadataELF(libPath string) (*AgentMetadata, error) {
-	file, err := elf.Open(libPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ELF file: %v", err)
-	}
-	defer file.Close()
-
-	// Look for our custom section
-	section := file.Section(".jvmtool_meta")
-	if section == nil {
-		return nil, fmt.Errorf("jvmtool metadata section not found in ELF file")
-	}
-
-	data, err := section.Data()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read section data: %v", err)
-	}
-
-	return parseMetadataFromBytes(data)
-}
-
-// extractMetadataPE extracts metadata from PE binaries (Windows)
-func extractMetadataPE(libPath string) (*AgentMetadata, error) {
-	file, err := pe.Open(libPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open PE file: %v", err)
-	}
-	defer file.Close()
-
-	sectionNames := []string{".jvmtool", ".data", ".rdata"}
-
-	for _, sectionName := range sectionNames {
-		section := file.Section(sectionName)
-		if section != nil {
-			data, err := section.Data()
-			if err != nil {
-				continue // Try next section
-			}
-
-			if metadata, err := parseMetadataFromBytes(data); err == nil {
-				return metadata, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("jvmtool metadata not found in PE file sections")
+	return platformSpecificExtractMetadata(libPath)
 }
 
 // parseMetadataFromBytes parses the AgentMetadata structure from raw bytes
