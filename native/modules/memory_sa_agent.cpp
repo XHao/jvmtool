@@ -102,6 +102,10 @@ class MemorySAModule : public AgentModule {
         cleanup();
     }
 
+    const char* getName() const override {
+        return "memory";
+    }
+
     void cleanup() {
         static std::mutex cleanup_mutex;
         std::lock_guard<std::mutex> lock(cleanup_mutex);

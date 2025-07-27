@@ -3,12 +3,14 @@
 #include <jvmti.h>
 
 #include <mutex>
-#include <vector>
+#include <unordered_map>
+#include <string>
 
 class AgentModule {
   public:
     virtual ~AgentModule() = default;
     virtual void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) = 0;
+    virtual const char* getName() const = 0;
 
     AgentModule(const AgentModule&) = delete;
     AgentModule& operator=(const AgentModule&) = delete;
@@ -26,7 +28,7 @@ class AgentManager {
     void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
 
   private:
-    std::vector<AgentModule*> modules_;
+    std::unordered_map<std::string, AgentModule*> modules_;
     std::mutex modules_mutex_;
 
     AgentManager() = default;

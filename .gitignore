@@ -33,3 +33,4 @@ go.work.sum
 .DS_Store
 build/
 dist
+.build_info_cache

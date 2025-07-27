@@ -3,14 +3,12 @@ package internal
 import (
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"os/user"
 	"strings"
-	"syscall"
-	"time"
+)
 
-	"golang.org/x/sys/unix"
+const (
+	ATTACH_TIMEOUT = 9000
 )
 
 type JvmProcess struct {
@@ -23,86 +21,43 @@ type JvmProcess struct {
 	mainArgs       string
 }
 
-// jdk/src/jdk.attach/share/classes/sun/tools/attach/HotSpotVirtualMachine.java
-func (jp *JvmProcess) checkSocket() error {
-	socketPath := fmt.Sprintf("%s/.java_pid%d", os.TempDir(), jp.Pid)
-	attachFile := fmt.Sprintf("%s/.attach_pid%d", os.TempDir(), jp.Pid)
-	var created bool
-	timeout := 9_000
-	timeSpend := 0
-	for {
-		_, err := os.Stat(socketPath)
-		if err == nil {
-			return nil
-		}
-		if timeSpend > timeout {
-			break
-		}
-		if created {
-			time.Sleep(1000 * time.Millisecond)
-			timeSpend += 1000
-			continue
-		}
-		created = true
-		f, err := os.Create(attachFile)
-		if f != nil {
-			defer f.Close()
-		}
-		defer os.Remove(attachFile)
-		if err != nil {
-			return fmt.Errorf("attach failed, cannot create file, %v", err.Error())
-		} else {
-			p, err := os.FindProcess(int(jp.Pid))
-			if err != nil {
-				return fmt.Errorf("java process does not exist, %v", jp.Pid)
-			}
-			err = p.Signal(syscall.SIGQUIT)
-			if err != nil {
-				return fmt.Errorf("cannot send signal %v to Java process", syscall.SIGQUIT)
-			}
-		}
-		time.Sleep(1000 * time.Millisecond)
-		timeSpend += 1000
-	}
-	return fmt.Errorf("unable to open socket file %s: target process %d doesn't respond within %dms or HotSpot VM not loaded", socketPath, jp.Pid, timeSpend)
+// AgentRequest represents a common agent loading request
+type AgentRequest struct {
+	AgentPath   string
+	Params      string
+	IsNative    bool
+	Command     string
+	RequestData []byte
 }
 
-func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
-	socketPath := fmt.Sprintf("%s/.java_pid%d", os.TempDir(), jp.Pid)
-	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		return fmt.Errorf("failed to create unix socket: %v", err.Error())
-	}
-	addr := unix.SockaddrUnix{
-		Name: socketPath,
-	}
-	err = unix.Connect(fd, &addr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to target process %v: %v %v", jp.Pid, socketPath, err.Error())
-	}
-	defer unix.Close(fd)
+// AgentResponse represents the response from agent loading
+type AgentResponse struct {
+	Success    bool
+	ReturnCode string
+	Message    string
+	ErrorCode  string
+}
 
-	request := make([]byte, 0)
-	// Protocol version
-	request = append(request, byte('1'))
-	request = append(request, byte(0))
-
-	// Detect if this is a native agent (based on file extension)
-	isNativeAgent := strings.HasSuffix(agentPath, ".so") ||
+// Common agent type detection logic
+func detectAgentType(agentPath string) bool {
+	return strings.HasSuffix(agentPath, ".so") ||
 		strings.HasSuffix(agentPath, ".dylib") ||
 		strings.HasSuffix(agentPath, ".dll")
+}
 
-	// Build load command
-	request = append(request, []byte("load")...)
-	request = append(request, byte(0))
+// Common request building logic
+func buildAgentRequest(agentPath, params string) *AgentRequest {
+	isNative := detectAgentType(agentPath)
 
-	// Determine arguments based on agent type
+	var command string
 	var arg1, arg2, arg3 string
-	if isNativeAgent {
+
+	if isNative {
 		// For native agents: agentPath, "true", params
 		arg1 = agentPath
 		arg2 = "true"
 		arg3 = params
+		command = fmt.Sprintf("load\x00%s\x00%s\x00%s\x00", arg1, arg2, arg3)
 	} else {
 		// For Java agents: "instrument", "false", agentPath[=params]
 		arg1 = "instrument"
@@ -111,36 +66,54 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 		if params != "" {
 			arg3 += "=" + params
 		}
+		command = fmt.Sprintf("load\x00%s\x00%s\x00%s\x00", arg1, arg2, arg3)
 	}
 
-	// Write arguments
-	request = append(request, []byte(arg1)...)
-	request = append(request, byte(0))
-	request = append(request, []byte(arg2)...)
-	request = append(request, byte(0))
-	request = append(request, []byte(arg3)...)
-	request = append(request, byte(0))
+	// Build request data with protocol version
+	requestData := make([]byte, 0)
+	requestData = append(requestData, byte('1')) // Protocol version
+	requestData = append(requestData, byte(0))
+	requestData = append(requestData, []byte("load")...)
+	requestData = append(requestData, byte(0))
+	requestData = append(requestData, []byte(arg1)...)
+	requestData = append(requestData, byte(0))
+	requestData = append(requestData, []byte(arg2)...)
+	requestData = append(requestData, byte(0))
+	requestData = append(requestData, []byte(arg3)...)
+	requestData = append(requestData, byte(0))
 
-	if _, err = unix.Write(fd, request); err != nil {
-		return fmt.Errorf("failed to write attach request to process %v: %v", jp.Pid, err.Error())
+	return &AgentRequest{
+		AgentPath:   agentPath,
+		Params:      params,
+		IsNative:    isNative,
+		Command:     command,
+		RequestData: requestData,
+	}
+}
+
+// Common response parsing logic
+func parseAgentResponse(responseData string, isNative bool) (*AgentResponse, error) {
+	if len(responseData) == 0 {
+		return nil, fmt.Errorf("target VM did not respond")
 	}
 
-	log("waiting for attach to complete...")
-	resp, err := readAttachResponse(fd, jp.Pid)
-	if err != nil {
-		return err
+	ret := strings.Split(responseData, "\n")
+	if len(ret) < 2 {
+		return nil, fmt.Errorf("invalid response format")
 	}
-	log("attach operation completed")
 
-	if len(resp) == 0 {
-		return fmt.Errorf("target VM did not respond")
-	}
-	ret := strings.Split(resp, "\n")
 	returnCode := ret[0]
-	if returnCode != "0" {
-		return fmt.Errorf("agent load failed, return code: %s", returnCode)
-
+	response := &AgentResponse{
+		ReturnCode: returnCode,
+		Success:    returnCode == "0",
 	}
+
+	if returnCode != "0" {
+		response.Message = fmt.Sprintf("agent load failed, return code: %s", returnCode)
+		return response, errors.New(response.Message)
+	}
+
+	// Parse error code from second line
 	var errCode string
 	if strings.HasPrefix(ret[1], "return code: ") {
 		errCode = ret[1][13:]
@@ -153,48 +126,35 @@ func (jp *JvmProcess) loadAgent(agentPath string, params string) error {
 		}
 	}
 
+	response.ErrorCode = errCode
+
+	// Handle error codes
 	switch errCode {
 	case "-1":
-		return errors.New(ret[1])
+		response.Message = ret[1]
+		return response, errors.New(ret[1])
 	case "0":
-		return nil
+		response.Success = true
+		return response, nil
 	case "100":
-		if isNativeAgent {
-			return fmt.Errorf("agent load failed, code 100: Native agent library not found or unable to load")
+		if isNative {
+			response.Message = "agent load failed, code 100: Native agent library not found or unable to load"
 		} else {
-			return fmt.Errorf("agent load failed, code 100: Agent JAR not found or no Agent-Class attribute")
+			response.Message = "agent load failed, code 100: Agent JAR not found or no Agent-Class attribute"
 		}
+		return response, errors.New(response.Message)
 	case "101":
-		return fmt.Errorf("agent load failed, code 101: Unable to add JAR file to system class path")
+		response.Message = "agent load failed, code 101: Unable to add JAR file to system class path"
+		return response, errors.New(response.Message)
 	case "102":
-		if isNativeAgent {
-			return fmt.Errorf("agent load failed, code 102: Agent_OnAttach function not found or failed")
+		if isNative {
+			response.Message = "agent load failed, code 102: Agent_OnAttach function not found or failed"
 		} else {
-			return fmt.Errorf("agent load failed, code 102: No agentmain method or agentmain failed")
+			response.Message = "agent load failed, code 102: No agentmain method or agentmain failed"
 		}
+		return response, errors.New(response.Message)
 	}
-	return fmt.Errorf("agent load failed, unknown message: %s", ret[1])
-}
 
-func readAttachResponse(fd int, pid int32) (resp string, err error) {
-	buf := make([]byte, 4096)
-	var data []byte
-	n := 0
-	for {
-		n, err = unix.Read(fd, buf)
-		if n > 0 {
-			data = append(data, buf[:n]...)
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return "", fmt.Errorf("failed to read attach response from process %v: %v", pid, err.Error())
-		}
-		if n == 0 {
-			break
-		}
-	}
-	resp = string(data)
-	return
+	response.Message = fmt.Sprintf("agent load failed, unknown message: %s", ret[1])
+	return response, errors.New(response.Message)
 }

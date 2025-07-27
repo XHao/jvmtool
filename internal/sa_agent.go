@@ -90,7 +90,12 @@ func SAAgent(option SAAgentOption) int {
 		return 1
 	}
 
-	params := fmt.Sprintf("analysis=%s,duration=%d", option.Analysis, option.Duration)
+	// Create communication file base path
+	tempDir := os.TempDir()
+	sessionID := fmt.Sprintf("%s_%d", option.Pid, time.Now().UnixMilli())
+	commPath := filepath.Join(tempDir, "jvmtool_"+sessionID)
+
+	params := fmt.Sprintf("analysis=%s,duration=%d,comm_path=%s", option.Analysis, option.Duration, commPath)
 	if option.Output != "" {
 		params += fmt.Sprintf(",output=%s", option.Output)
 	}
@@ -106,6 +111,26 @@ func SAAgent(option SAAgentOption) int {
 		option.Pid, option.Analysis, option.Duration))
 
 	result := Jattach(jattachOpt)
+
+	// Check for agent attach errors using the new JT protocol
+	if result != 0 {
+		return result
+	}
+
+	// Create JT protocol reader
+	protocolReader := NewJTProtocolReader(commPath)
+	defer protocolReader.Cleanup()
+
+	// Wait for agent attach status
+	statusMsg, err := protocolReader.WaitForStatus(Success, 5*time.Second)
+	if err != nil {
+		log(fmt.Sprintf("Agent attach failed: %v", err))
+		return 1
+	}
+
+	if statusMsg != nil {
+		log(fmt.Sprintf("Agent status: %s", statusMsg.Content))
+	}
 
 	// If no output file was specified, we need to wait for and display the temporary file output
 	if option.Output == "" && result == 0 {

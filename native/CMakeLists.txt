@@ -62,7 +62,7 @@ file(GLOB AGENT_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
 )
 file(GLOB AGENT_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 
 file(GLOB MODULES_SOURCES
@@ -100,7 +100,10 @@ if(ENABLE_CLANG_FORMAT)
         
         # Add format target
         add_custom_target(format
-            COMMAND ${CLANG_FORMAT_EXE} -i -style=file ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMAND ${CLANG_FORMAT_EXE} -i -style=file 
+                    ${AGENT_HEADERS} 
+                    ${AGENT_SOURCES}
+                    ${MODULES_SOURCES}
             COMMENT "Formatting code with clang-format"
             VERBATIM
         )
@@ -140,11 +143,11 @@ if(ENABLE_CLANG_TIDY)
         set_target_properties(jvmtool-agent PROPERTIES
             CXX_CLANG_TIDY "${CLANG_TIDY_EXE};--config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy"
         )
+        # Build the include flags for clang-tidy
         set(TIDY_INCLUDE_FLAGS "")
         foreach(include_dir ${JNI_INCLUDE_DIRS})
-            set(TIDY_INCLUDE_FLAGS "${TIDY_INCLUDE_FLAGS} -I${include_dir}")
+            list(APPEND TIDY_INCLUDE_FLAGS "-I${include_dir}")
         endforeach()
-        message(${TIDY_INCLUDE_FLAGS})
         
         add_custom_target(tidy
             COMMAND ${CLANG_TIDY_EXE} 
@@ -152,7 +155,7 @@ if(ENABLE_CLANG_TIDY)
                     ${AGENT_SOURCES}
                     ${MODULES_SOURCES}
                     --config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy
-                    -- -I${CMAKE_CURRENT_SOURCE_DIR}/include ${TIDY_INCLUDE_FLAGS} -pthread
+                    -- -I${CMAKE_CURRENT_SOURCE_DIR}/include ${TIDY_INCLUDE_FLAGS} -pthread -xc++
             COMMENT "Running clang-tidy on project files only"
             VERBATIM
         )
@@ -162,32 +165,33 @@ if(ENABLE_CLANG_TIDY)
 endif()
 
 # Find cppcheck
-# CppCheck target with basic configuration and exclusions
-if(CPPCHECK_FOUND)
-    add_custom_target(cppcheck
+if(ENABLE_CPPCHECK)
+    find_program(CPPCHECK_EXECUTABLE NAMES cppcheck)
+    if(CPPCHECK_EXECUTABLE)
+        message(STATUS "Found cppcheck: ${CPPCHECK_EXECUTABLE}")
+        
+        # CppCheck target with basic configuration and exclusions
+        add_custom_target(cppcheck
         COMMAND ${CPPCHECK_EXECUTABLE}
             --enable=warning,style,performance,portability
             --std=c++17
+            --language=c++
             --suppress=missingIncludeSystem
             --suppress=unmatchedSuppression
             --quiet
             --force
             --inline-suppr
-            --suppress=missingInclude
-            --suppress=syntaxError
-            --suppress=unknownMacro
-            --suppress=toomanyconfigs
-            --suppress=normalCheckLevelMaxBranches
-            --suppress=ctuOneDefinitionRuleViolation
-            --suppress=checkersReport
-            --exclude=build/_deps/
-            --exclude=build/CMakeFiles/
+            -i build/_deps/
+            -i build/CMakeFiles/
             ${AGENT_HEADERS} 
             ${AGENT_SOURCES}
             ${MODULES_SOURCES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Running cppcheck static analysis on project files only"
     )
+    else()
+        message(WARNING "cppcheck not found")
+    endif()
 endif()
 
 # Add combined lint target

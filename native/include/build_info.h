@@ -15,8 +15,8 @@ extern "C" {
 
 // Build metadata structure
 struct jvmtool_metadata {
-    char magic[16];          // "JVMTOOLLOOTMVJ\0"
-    uint32_t checksum;      // Simple checksum of above fields
+    char magic[16];     // "JVMTOOLLOOTMVJ\0"
+    uint32_t checksum;  // Simple checksum of above fields
 };
 
 // Declare the global metadata instance
@@ -26,4 +26,4 @@ extern const struct jvmtool_metadata jvmtool_build_info;
 }
 #endif
 
-#endif // BUILD_INFO_H
+#endif  // BUILD_INFO_H
