@@ -14,10 +14,8 @@
 
 #include "../include/agent.h"
 
-class MemorySAModule : public AgentModule {
+class MemorySAModule : public jvmtool::AgentModule {
   private:
-    jvmtiEnv* jvmti_;
-    JavaVM* vm_;
     std::atomic<bool> monitoring_;
     std::thread monitor_thread_;
     std::string output_file_;
@@ -28,13 +26,26 @@ class MemorySAModule : public AgentModule {
     static std::atomic<int> instance_counter_;
 
   public:
-    MemorySAModule() : jvmti_(nullptr), vm_(nullptr), monitoring_(false), duration_(30) {
+    MemorySAModule() : monitoring_(false), duration_(30) {
         // Create unique instance ID
         int id = instance_counter_.fetch_add(1);
         instance_id_ = "SA_" + std::to_string(getpid()) + "_" + std::to_string(id);
     }
 
-    void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) override {
+    jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) override {
+        // Call base class implementation first
+        jvmtiError result = AgentModule::initialize(java_vm, jvmti, options);
+        if (result != JVMTI_ERROR_NONE) {
+            return result;
+        }
+
+        // Add any module-specific initialization here if needed
+        // For now, the base class implementation is sufficient
+
+        return JVMTI_ERROR_NONE;
+    }
+
+    void onAttach(const char* options) override {
         // If already monitoring, stop previous monitoring first
         if (monitoring_.load()) {
             writeOutput("[Native SA] Stopping previous monitoring session...");
@@ -43,9 +54,6 @@ class MemorySAModule : public AgentModule {
                 monitor_thread_.join();
             }
         }
-
-        jvmti_ = jvmti;
-        vm_ = java_vm;
 
         // Parse options
         parseOptions(options);
@@ -61,7 +69,7 @@ class MemorySAModule : public AgentModule {
         // Enable memory-related capabilities - be more conservative
         jvmtiCapabilities caps = {};
         caps.can_generate_garbage_collection_events = 1;
-        jvmtiError err = jvmti->AddCapabilities(&caps);
+        jvmtiError err = jvmti_->AddCapabilities(&caps);
         if (err != JVMTI_ERROR_NONE) {
             writeOutput("[Native SA] Warning: Failed to add GC capabilities: " +
                         std::to_string(err));
@@ -72,13 +80,13 @@ class MemorySAModule : public AgentModule {
             jvmtiEventCallbacks callbacks = {};
             callbacks.GarbageCollectionStart = &onGCStart;
             callbacks.GarbageCollectionFinish = &onGCFinish;
-            jvmti->SetEventCallbacks(&callbacks, sizeof(callbacks));
+            jvmti_->SetEventCallbacks(&callbacks, sizeof(callbacks));
 
             // Enable events
-            jvmti->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_START,
-                                            nullptr);
-            jvmti->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_FINISH,
-                                            nullptr);
+            jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_START,
+                                             nullptr);
+            jvmti_->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_GARBAGE_COLLECTION_FINISH,
+                                             nullptr);
         }
 
         writeOutput("[Native SA] Memory SA Module loaded - JVMTI Agent [" + instance_id_ + "]");
@@ -424,7 +432,7 @@ void registerMemoryModule() {
         if (!memoryModule) {
             memoryModule = new MemorySAModule();
         }
-        AgentManager::instance().registerModule(memoryModule);
+        jvmtool::AgentManager::instance().registerModule(memoryModule);
         module_registered = true;
         std::cerr << "[Native SA] Memory SA module registered successfully" << std::endl;
     }

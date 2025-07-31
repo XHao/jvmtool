@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(jvmtool_native_agent LANGUAGES C CXX)
 
+# Generate compile_commands.json for VS Code
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Add custom CMake module path
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 

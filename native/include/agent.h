@@ -3,13 +3,24 @@
 #include <jvmti.h>
 
 #include <mutex>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
+
+#include "writer.h"
+
+namespace jvmtool {
+
+void logJvmtiError(jvmtiError error, const char* context = nullptr);
 
 class AgentModule {
   public:
     virtual ~AgentModule() = default;
-    virtual void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) = 0;
+
+    virtual jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
+    bool isInitialized() const;
+
+    virtual void onAttach(const char* options) = 0;
+
     virtual const char* getName() const = 0;
 
     AgentModule(const AgentModule&) = delete;
@@ -19,17 +30,43 @@ class AgentModule {
 
   protected:
     AgentModule() = default;
+
+    jvmtiEnv* jvmti_ = nullptr;
+    JavaVM* vm_ = nullptr;
+    jrawMonitorID module_monitor_ = nullptr;
+
+    // RAII-style monitor lock helper
+    class MonitorLock {
+      public:
+        explicit MonitorLock(AgentModule* module);
+        ~MonitorLock();
+
+        bool isLocked() const {
+            return is_locked_;
+        }
+
+        MonitorLock(const MonitorLock&) = delete;
+        MonitorLock& operator=(const MonitorLock&) = delete;
+
+      private:
+        jvmtiEnv* jvmti_;
+        jrawMonitorID monitor_;
+        bool is_locked_;
+    };
+
+    bool initializeMonitor();
 };
 
 class AgentManager {
   public:
     static AgentManager& instance();
     void registerModule(AgentModule* module);
-    void onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
+    jint onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
 
   private:
     std::unordered_map<std::string, AgentModule*> modules_;
     std::mutex modules_mutex_;
+    bool inited_{false};
 
     AgentManager() = default;
     ~AgentManager() = default;
@@ -40,3 +77,5 @@ class AgentManager {
     AgentManager(AgentManager&&) = delete;
     AgentManager& operator=(AgentManager&&) = delete;
 };
+
+}  // namespace jvmtool

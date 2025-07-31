@@ -11,6 +11,81 @@
 
 #include "file_protocol.h"
 
+namespace jvmtool {
+
+void logJvmtiError(jvmtiError error, const char* context) {
+    if (error == JVMTI_ERROR_NONE) {
+        return;  // No error to log
+    }
+
+    std::cerr << "[JVMTI Error] ";
+    if (context != nullptr) {
+        std::cerr << context << ": ";
+    }
+    std::cerr << "code(" << error << ")" << std::endl;
+}
+
+jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
+    if (java_vm == nullptr || jvmti == nullptr) {
+        return JVMTI_ERROR_NULL_POINTER;
+    }
+
+    jvmti_ = jvmti;
+    vm_ = java_vm;
+
+    if (!initializeMonitor()) {
+        return JVMTI_ERROR_INTERNAL;
+    }
+
+    return JVMTI_ERROR_NONE;
+}
+
+bool AgentModule::isInitialized() const {
+    return jvmti_ != nullptr && vm_ != nullptr && module_monitor_ != nullptr;
+}
+
+bool AgentModule::initializeMonitor() {
+    if (jvmti_ == nullptr) {
+        logJvmtiError(JVMTI_ERROR_WRONG_PHASE,
+                      "AgentModule::initializeMonitor - JVMTI not available");
+        return false;
+    }
+
+    if (module_monitor_ != nullptr) {
+        return true;  // Already initialized
+    }
+
+    jvmtiError err = jvmti_->CreateRawMonitor(getName(), &module_monitor_);
+    if (err != JVMTI_ERROR_NONE) {
+        logJvmtiError(err, "AgentModule::initializeMonitor - Failed to create raw monitor");
+        return false;
+    }
+    return true;
+}
+
+// AgentModule::MonitorLock implementation
+AgentModule::MonitorLock::MonitorLock(AgentModule* module)
+    : jvmti_(module->jvmti_), monitor_(module->module_monitor_), is_locked_(false) {
+    if (jvmti_ != nullptr && monitor_ != nullptr) {
+        jvmtiError err = jvmti_->RawMonitorEnter(monitor_);
+        if (err == JVMTI_ERROR_NONE) {
+            is_locked_ = true;
+        } else {
+            logJvmtiError(err, "MonitorLock::MonitorLock - Failed to enter monitor");
+        }
+    }
+}
+
+AgentModule::MonitorLock::~MonitorLock() {
+    if (is_locked_ && jvmti_ != nullptr && monitor_ != nullptr) {
+        jvmtiError err = jvmti_->RawMonitorExit(monitor_);
+        if (err != JVMTI_ERROR_NONE) {
+            logJvmtiError(err, "MonitorLock::~MonitorLock - Failed to exit monitor");
+        }
+    }
+}
+
+// AgentManager implementation
 AgentManager& AgentManager::instance() {
     static AgentManager mgr;
     return mgr;
@@ -26,68 +101,69 @@ void AgentManager::registerModule(AgentModule* module) {
 
     if (modules_.find(module_name) == modules_.end()) {
         modules_[module_name] = module;
-    }
-}
-
-void AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
-    const std::lock_guard<std::mutex> lock(modules_mutex_);
-    std::string target_module;
-    std::string base_path;
-
-    if (options != nullptr) {
-        std::string opts(options);
-
-        // Parse analysis type
-        size_t analysis_pos = opts.find("analysis=");
-        if (analysis_pos != std::string::npos) {
-            size_t start = analysis_pos + 9;  // length of "analysis="
-            size_t end = opts.find(',', start);
-            if (end == std::string::npos) {
-                end = opts.length();
-            }
-            target_module = opts.substr(start, end - start);
-        }
-
-        // Parse base path for file communication
-        size_t path_pos = opts.find("comm_path=");
-        if (path_pos != std::string::npos) {
-            size_t start = path_pos + 10;  // length of "comm_path="
-            size_t end = opts.find(',', start);
-            if (end == std::string::npos) {
-                end = opts.length();
-            }
-            base_path = opts.substr(start, end - start);
-        }
-    }
-
-    // Create file protocol instance for communication
-    auto protocol = std::make_unique<jvmtool::FileProtocol>(base_path);
-
-    if (target_module.empty()) {
-        protocol->sendError("No analysis type specified in options");
-        return;
-    }
-
-    // Find and attach only the specified module
-    auto it = modules_.find(target_module);
-    if (it != modules_.end() && it->second != nullptr) {
-        try {
-            protocol->sendStatus(jvmtool::StatusCode::RUNNING,
-                                 "Attaching module: " + target_module);
-            it->second->onAttach(java_vm, jvmti, options);
-            protocol->sendStatus(jvmtool::StatusCode::SUCCESS,
-                                 "Module '" + target_module + "' attached successfully");
-        } catch (const std::exception& exception) {
-            protocol->sendError("Module '" + target_module +
-                                "' failed to attach: " + exception.what());
-        } catch (...) {
-            protocol->sendError("Module '" + target_module +
-                                "' failed to attach: Unknown exception");
-        }
     } else {
-        protocol->sendError("Module '" + target_module + "' not found or not registered");
+        logJvmtiError(JVMTI_ERROR_DUPLICATE,
+                      "AgentManager::registerModule - Duplicate module registered");
     }
 }
+
+jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
+    try {
+        const std::lock_guard<std::mutex> lock(modules_mutex_);
+        if (!inited_) {
+            for (auto& [name, module] : modules_) {
+                jvmtiError init_err = module->initialize(java_vm, jvmti, options);
+                if (init_err != JVMTI_ERROR_NONE) {
+                    logJvmtiError(init_err, ("AgentManager::onAttach - Module '" + name +
+                                             "' initialization failed")
+                                                .c_str());
+                }
+            }
+            inited_ = true;
+        }
+
+        std::string target_module;
+
+        if (options != nullptr) {
+            std::string opts(options);
+            size_t analysis_pos = opts.find("analysis=");
+            if (analysis_pos != std::string::npos) {
+                size_t start = analysis_pos + 9;  // length of "analysis="
+                size_t end = opts.find(',', start);
+                if (end == std::string::npos) {
+                    end = opts.length();
+                }
+                target_module = opts.substr(start, end - start);
+            }
+        }
+
+        if (target_module.empty()) {
+            logJvmtiError(JVMTI_ERROR_ILLEGAL_ARGUMENT,
+                          "AgentManager::onAttach - Module name is empty");
+            return JNI_EINVAL;
+        }
+
+        auto it = modules_.find(target_module);
+        if (it != modules_.end() && it->second != nullptr) {
+            AgentModule* module = it->second;
+            if (!module->isInitialized()) {
+                return JNI_ERR;
+            }
+            module->onAttach(options);
+            return JNI_OK;
+        } else {
+            logJvmtiError(
+                JVMTI_ERROR_ILLEGAL_ARGUMENT,
+                ("AgentManager::onAttach - Module '" + target_module + "' is not loaded").c_str());
+            return JNI_EINVAL;
+        }
+    } catch (const std::exception& exception) {
+        logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());
+    }
+    return JNI_ERR;
+}
+
+}  // namespace jvmtool
 
 JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*reserved*/) {
     jvmtiEnv* jvmti = nullptr;
@@ -95,8 +171,7 @@ JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*re
     if (res != JNI_OK || jvmti == nullptr) {
         return JNI_ERR;
     }
-    AgentManager::instance().onAttach(java_vm, jvmti, options);
-    return JNI_OK;
+    return jvmtool::AgentManager::instance().onAttach(java_vm, jvmti, options);
 }
 
 JNIEXPORT void JNICALL Agent_OnUnload(JavaVM* java_vm) {
