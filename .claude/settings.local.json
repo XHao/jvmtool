@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -F:*)",
+      "Bash(make clean:*)",
+      "Bash(make:*)",
+      "Bash(make build:*)",
+      "Bash(make test:*)",
+      "Bash(make format:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(go mod:*)",
+      "Bash(cmake:*)",
+      "Bash(ctest:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(find . -name:*)",
+      "Bash(grep -r:*)",
+      "Bash(ps aux:*)",
+      "Bash(jps:*)"
+    ],
+    "deny": []
+  }
+}
