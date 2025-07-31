@@ -9,8 +9,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "file_protocol.h"
-
 namespace jvmtool {
 
 void logJvmtiError(jvmtiError error, const char* context) {

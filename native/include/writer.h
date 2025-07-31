@@ -2,48 +2,51 @@
 
 #include <memory>
 #include <string>
-#include <vector>
+
+#include "message.h"
+#ifdef _WIN32
+    #include <windows.h>
+#else
+    #include <sys/socket.h>
+    #include <sys/un.h>
+    #include <unistd.h>
+#endif
 
 namespace jvmtool {
 
-// Forward declaration
-class Message;
-
-// Abstract message writer interface
+// Uses Unix domain socket on Unix/Linux, Named pipe on Windows
 class MessageWriter {
   public:
-    virtual ~MessageWriter() = default;
-    
-    // Initialize the writer with connection parameters
-    virtual bool initialize(const std::string& params) = 0;
-    
-    // Write a message (uses Message's serialize method internally)
-    virtual bool writeMessage(const Message& message) = 0;
-    
-    // Flush any buffered data
-    virtual bool flush() = 0;
-    
-    // Close and cleanup
-    virtual void close() = 0;
-    
-    // Check if writer is ready for writing
-    virtual bool isReady() const = 0;
-    
+    MessageWriter();
+    ~MessageWriter();
+
+    // path: Unix socket path on Unix/Linux, pipe name on Windows
+    bool initialize(const std::string& path);
+
+    bool writeMessage(const Message& message);
+
+    bool flush();
+
+    void close();
+
+    bool isReady() const;
+
     // Get last error message
-    virtual std::string getLastError() const = 0;
-
-  protected:
-    MessageWriter() = default;
-};
-
-// Factory for creating platform-specific writers
-class MessageWriterFactory {
-  public:
-    // Create writer based on connection string (auto-detects platform)
-    static std::unique_ptr<MessageWriter> createWriter(const std::string& connection_params);
+    std::string getLastError() const;
 
   private:
-    MessageWriterFactory() = delete;
+    std::string path_;
+    std::string last_error_;
+    bool is_ready_;
+
+#ifdef _WIN32
+    HANDLE pipe_handle_;
+#else
+    int socket_fd_;
+#endif
+
+    MessageWriter(const MessageWriter&) = delete;
+    MessageWriter& operator=(const MessageWriter&) = delete;
 };
 
 }  // namespace jvmtool
