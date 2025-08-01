@@ -122,12 +122,46 @@ jobs:
       with:
         arch: x64
 
+    - name: Fix JAVA_HOME path on Windows
+      if: matrix.platform == 'windows'
+      shell: powershell
+      run: |
+        $javahome = $env:JAVA_HOME
+        Write-Host "Original JAVA_HOME: $javahome"
+        # Convert forward slashes to backslashes and remove trailing slashes
+        $javahome = $javahome -replace '/', '\'
+        $javahome = $javahome.TrimEnd('\')
+        Write-Host "Fixed JAVA_HOME: $javahome"
+        echo "JAVA_HOME=$javahome" >> $env:GITHUB_ENV
+        
+        # Also set it for this session
+        $env:JAVA_HOME = $javahome
+        
+        # Verify the path exists and contains JNI headers
+        if (Test-Path "$javahome\include\jni.h") {
+          Write-Host "✅ JNI headers found at $javahome\include\jni.h"
+        } else {
+          Write-Host "❌ JNI headers NOT found at $javahome\include\jni.h"
+          Get-ChildItem "$javahome" -Recurse -Name "jni.h" | Select-Object -First 5
+        }
+
     - name: Configure CMake
       working-directory: native
       run: |
         mkdir -p build
         cd build
-        cmake .. -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          # On Windows, explicitly set Java paths to avoid FindJNI path parsing issues
+          cmake .. -G "${{ matrix.cmake_generator }}" \
+            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DBUILD_TESTS=ON \
+            -DJAVA_HOME="$JAVA_HOME" \
+            -DJAVA_INCLUDE_PATH="$JAVA_HOME/include" \
+            -DJAVA_INCLUDE_PATH2="$JAVA_HOME/include/win32" \
+            -DJAVA_AWT_INCLUDE_PATH="$JAVA_HOME/include"
+        else
+          cmake .. -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
+        fi
       shell: bash
 
     - name: Build Native Agent

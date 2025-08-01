@@ -1,19 +1,22 @@
 #include "writer.h"
+
 #include "message.h"
 
 #ifndef _WIN32
-#include <cerrno>
-#include <cstring>
+    #include <cerrno>
+    #include <cstring>
 #endif
 
 namespace jvmtool {
 
-MessageWriter::MessageWriter() 
+MessageWriter::MessageWriter()
     : is_ready_(false)
 #ifdef _WIN32
-    , pipe_handle_(INVALID_HANDLE_VALUE)
+      ,
+      pipe_handle_(INVALID_HANDLE_VALUE)
 #else
-    , socket_fd_(-1)
+      ,
+      socket_fd_(-1)
 #endif
 {
 }
@@ -29,22 +32,20 @@ bool MessageWriter::initialize(const std::string& path) {
 #ifdef _WIN32
     // Windows Named Pipe implementation
     std::string pipe_name = path;
-    
-    // Ensure pipe name starts with \\.\pipe\
+
+    // Ensure pipe name starts with \\.\pipe\ prefix
     if (pipe_name.find("\\\\.\\pipe\\") != 0) {
         pipe_name = "\\\\.\\pipe\\" + pipe_name;
     }
 
     // Create named pipe
-    pipe_handle_ = CreateNamedPipeA(
-        pipe_name.c_str(),
-        PIPE_ACCESS_OUTBOUND,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1, // Max instances
-        8192, // Output buffer size
-        8192, // Input buffer size
-        0, // Default timeout
-        nullptr // Default security
+    pipe_handle_ = CreateNamedPipeA(pipe_name.c_str(), PIPE_ACCESS_OUTBOUND,
+                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                                    1,       // Max instances
+                                    8192,    // Output buffer size
+                                    8192,    // Input buffer size
+                                    0,       // Default timeout
+                                    nullptr  // Default security
     );
 
     if (pipe_handle_ == INVALID_HANDLE_VALUE) {
@@ -76,14 +77,14 @@ bool MessageWriter::initialize(const std::string& path) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    
+
     if (path.length() >= sizeof(addr.sun_path)) {
         last_error_ = "Socket path too long";
         ::close(socket_fd_);
         socket_fd_ = -1;
         return false;
     }
-    
+
     strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
 
     if (bind(socket_fd_, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
@@ -117,14 +118,9 @@ bool MessageWriter::writeMessage(const Message& message) {
 #ifdef _WIN32
     // Windows Named Pipe write
     DWORD bytes_written = 0;
-    
-    BOOL result = WriteFile(
-        pipe_handle_,
-        serialized.data(),
-        static_cast<DWORD>(serialized.size()),
-        &bytes_written,
-        nullptr
-    );
+
+    BOOL result = WriteFile(pipe_handle_, serialized.data(), static_cast<DWORD>(serialized.size()),
+                            &bytes_written, nullptr);
 
     if (!result || bytes_written != serialized.size()) {
         last_error_ = "Failed to write message: " + std::to_string(GetLastError());

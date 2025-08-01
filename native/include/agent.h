@@ -12,16 +12,23 @@ namespace jvmtool {
 
 void logJvmtiError(jvmtiError error, const char* context = nullptr);
 
+struct JvmtiErrorInfo {
+    const char* name;
+    const char* description;
+
+    constexpr JvmtiErrorInfo(const char* n, const char* d) : name(n), description(d) {}
+};
+
 class AgentModule {
   public:
     virtual ~AgentModule() = default;
 
-    virtual jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
-    bool isInitialized() const;
+    virtual jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti);
+    [[nodiscard]] bool isInitialized() const;
 
-    virtual void onAttach(const char* options) = 0;
+    virtual jint onAttach(const char* options) = 0;
 
-    virtual const char* getName() const = 0;
+    [[nodiscard]] virtual const char* getName() const = 0;
 
     AgentModule(const AgentModule&) = delete;
     AgentModule& operator=(const AgentModule&) = delete;
@@ -41,7 +48,7 @@ class AgentModule {
         explicit MonitorLock(AgentModule* module);
         ~MonitorLock();
 
-        bool isLocked() const {
+        [[nodiscard]] bool isLocked() const {
             return is_locked_;
         }
 
@@ -53,8 +60,6 @@ class AgentModule {
         jrawMonitorID monitor_;
         bool is_locked_;
     };
-
-    bool initializeMonitor();
 };
 
 class AgentManager {

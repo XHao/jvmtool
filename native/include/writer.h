@@ -29,10 +29,14 @@ class MessageWriter {
 
     void close();
 
-    bool isReady() const;
+    [[nodiscard]] bool isReady() const;
 
     // Get last error message
-    std::string getLastError() const;
+    [[nodiscard]] std::string getLastError() const;
+
+    // Deleted copy constructor and assignment operator (public for better error messages)
+    MessageWriter(const MessageWriter&) = delete;
+    MessageWriter& operator=(const MessageWriter&) = delete;
 
   private:
     std::string path_;
@@ -44,9 +48,6 @@ class MessageWriter {
 #else
     int socket_fd_;
 #endif
-
-    MessageWriter(const MessageWriter&) = delete;
-    MessageWriter& operator=(const MessageWriter&) = delete;
 };
 
 }  // namespace jvmtool

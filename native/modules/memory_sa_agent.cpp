@@ -1,6 +1,15 @@
-#include <errno.h>   // for errno
-#include <fcntl.h>   // for open()
-#include <unistd.h>  // for getpid()
+#ifdef _WIN32
+    #include <fcntl.h>     // for O_* flags
+    #include <io.h>        // for _open(), _close()
+    #include <process.h>   // for _getpid()
+    #include <sys/stat.h>  // for _S_IREAD, _S_IWRITE
+    #include <windows.h>
+#else
+    #include <fcntl.h>   // for open()
+    #include <unistd.h>  // for getpid()
+
+    #include <cerrno>  // for errno (modernize-deprecated-headers)
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -29,23 +38,14 @@ class MemorySAModule : public jvmtool::AgentModule {
     MemorySAModule() : monitoring_(false), duration_(30) {
         // Create unique instance ID
         int id = instance_counter_.fetch_add(1);
+#ifdef _WIN32
+        instance_id_ = "SA_" + std::to_string(_getpid()) + "_" + std::to_string(id);
+#else
         instance_id_ = "SA_" + std::to_string(getpid()) + "_" + std::to_string(id);
+#endif
     }
 
-    jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) override {
-        // Call base class implementation first
-        jvmtiError result = AgentModule::initialize(java_vm, jvmti, options);
-        if (result != JVMTI_ERROR_NONE) {
-            return result;
-        }
-
-        // Add any module-specific initialization here if needed
-        // For now, the base class implementation is sufficient
-
-        return JVMTI_ERROR_NONE;
-    }
-
-    void onAttach(const char* options) override {
+    jint onAttach(const char* options) override {
         // If already monitoring, stop previous monitoring first
         if (monitoring_.load()) {
             writeOutput("[Native SA] Stopping previous monitoring session...");
@@ -60,7 +60,18 @@ class MemorySAModule : public jvmtool::AgentModule {
 
         // If no output file specified, create a temporary one
         if (output_file_.empty()) {
+#ifdef _WIN32
+            // On Windows, use %TEMP% directory
+            char temp_path[MAX_PATH];
+            if (GetTempPathA(MAX_PATH, temp_path) > 0) {
+                temp_output_file_ =
+                    std::string(temp_path) + "jvmtool_sa_" + std::to_string(_getpid()) + ".log";
+            } else {
+                temp_output_file_ = "C:\\temp\\jvmtool_sa_" + std::to_string(_getpid()) + ".log";
+            }
+#else
             temp_output_file_ = "/tmp/jvmtool_sa_" + std::to_string(getpid()) + ".log";
+#endif
             output_file_ = temp_output_file_;  // Use temp file for all output
         }
 
@@ -94,7 +105,7 @@ class MemorySAModule : public jvmtool::AgentModule {
 
         // If using temporary file, print the path to stderr so jvmtool can see it
         if (!temp_output_file_.empty()) {
-            std::cerr << "JVMTOOL_TEMP_OUTPUT:" << temp_output_file_ << std::endl;
+            std::cerr << "JVMTOOL_TEMP_OUTPUT:" << temp_output_file_ << '\n';
             std::cerr.flush();
         }
 
@@ -104,6 +115,7 @@ class MemorySAModule : public jvmtool::AgentModule {
         } catch (const std::exception& e) {
             writeOutput("[Native SA] Failed to start monitoring thread: " + std::string(e.what()));
         }
+        return JNI_OK;
     }
 
     ~MemorySAModule() override {
@@ -126,7 +138,7 @@ class MemorySAModule : public jvmtool::AgentModule {
 
             // If we created a temporary file, signal completion
             if (!temp_output_file_.empty()) {
-                std::cerr << "JVMTOOL_ANALYSIS_COMPLETE:" << temp_output_file_ << std::endl;
+                std::cerr << "JVMTOOL_ANALYSIS_COMPLETE:" << temp_output_file_ << '\n';
                 std::cerr.flush();
             }
         } catch (...) {
@@ -136,16 +148,18 @@ class MemorySAModule : public jvmtool::AgentModule {
 
   private:
     void parseOptions(const char* options) {
-        if (!options)
+        if (options == nullptr) {
             return;
+        }
 
         std::string opts(options);
         size_t pos = 0;
 
         while (pos < opts.length()) {
             size_t next = opts.find(',', pos);
-            if (next == std::string::npos)
+            if (next == std::string::npos) {
                 next = opts.length();
+            }
 
             std::string param = opts.substr(pos, next - pos);
             size_t eq = param.find('=');
@@ -173,8 +187,14 @@ class MemorySAModule : public jvmtool::AgentModule {
         if (file.is_open()) {
             auto now = std::chrono::system_clock::now();
             auto time_t = std::chrono::system_clock::to_time_t(now);
+#ifdef _WIN32
+            struct tm tm_buf;
+            localtime_s(&tm_buf, &time_t);
+            file << "[" << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S") << "] " << message << '\n';
+#else
             file << "[" << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << "] "
-                 << message << std::endl;
+                 << message << '\n';
+#endif
             file.close();
         }
     }
@@ -255,8 +275,14 @@ class MemorySAModule : public jvmtool::AgentModule {
                     auto time_t = std::chrono::system_clock::to_time_t(now);
 
                     std::ostringstream oss;
-                    oss << "[Native SA] Heap Analysis at "
-                        << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+                    oss << "[Native SA] Heap Analysis at ";
+#ifdef _WIN32
+                    struct tm tm_buf;
+                    localtime_s(&tm_buf, &time_t);
+                    oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
+#else
+                    oss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+#endif
                     writeOutput(oss.str());
                     writeOutput("  Used: " + formatBytes(used));
                     writeOutput("  Committed: " + formatBytes(committed));
@@ -369,16 +395,30 @@ class MemorySAModule : public jvmtool::AgentModule {
         // For GC events, we'll log to stderr so it appears in jvmtool console
         auto now = std::chrono::system_clock::now();
         auto time_t = std::chrono::system_clock::to_time_t(now);
+#ifdef _WIN32
+        struct tm tm_buf;
+        localtime_s(&tm_buf, &time_t);
+        std::cerr << "[Native SA] GC Started at " << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S")
+                  << std::endl;
+#else
         std::cerr << "[Native SA] GC Started at "
-                  << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << std::endl;
+                  << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << '\n';
+#endif
         std::cerr.flush();
     }
 
     static void JNICALL onGCFinish(jvmtiEnv* jvmti) {
         auto now = std::chrono::system_clock::now();
         auto time_t = std::chrono::system_clock::to_time_t(now);
+#ifdef _WIN32
+        struct tm tm_buf;
+        localtime_s(&tm_buf, &time_t);
+        std::cerr << "[Native SA] GC Finished at " << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S")
+                  << std::endl;
+#else
         std::cerr << "[Native SA] GC Finished at "
-                  << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << std::endl;
+                  << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S") << '\n';
+#endif
         std::cerr.flush();
     }
 };
@@ -389,13 +429,36 @@ std::atomic<int> MemorySAModule::instance_counter_{0};
 // Register module - use a safer approach with process-level singleton
 extern "C" {
 // Use a global flag file to prevent multiple instances
+#ifdef _WIN32
+static const char* INSTANCE_LOCK_FILE = "jvmtool_memory_sa_lock.tmp";
+#else
 static const char* INSTANCE_LOCK_FILE = "/tmp/jvmtool_memory_sa_lock";
+#endif
 static MemorySAModule* memoryModule = nullptr;
 static std::mutex module_mutex;
 static bool module_registered = false;
 static int lock_fd = -1;
 
 bool acquireInstanceLock() {
+#ifdef _WIN32
+    // On Windows, get temp directory first
+    char temp_path[MAX_PATH];
+    std::string lock_file_path;
+    if (GetTempPathA(MAX_PATH, temp_path) > 0) {
+        lock_file_path = std::string(temp_path) + INSTANCE_LOCK_FILE;
+    } else {
+        lock_file_path = "C:\\temp\\" + std::string(INSTANCE_LOCK_FILE);
+    }
+    lock_fd = _open(lock_file_path.c_str(), _O_CREAT | _O_EXCL | _O_WRONLY, _S_IREAD | _S_IWRITE);
+    if (lock_fd == -1) {
+        // On Windows, check for file exists error
+        if (GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_FILE_EXISTS) {
+            return false;
+        }
+        // Other error, try to continue anyway
+        return true;
+    }
+#else
     lock_fd = open(INSTANCE_LOCK_FILE, O_CREAT | O_EXCL | O_WRONLY, 0644);
     if (lock_fd == -1) {
         if (errno == EEXIST) {
@@ -405,16 +468,38 @@ bool acquireInstanceLock() {
         // Other error, try to continue anyway
         return true;
     }
+#endif
     // Write our PID to the lock file
+#ifdef _WIN32
+    std::string pid_str = std::to_string(_getpid());
+#else
     std::string pid_str = std::to_string(getpid());
+#endif
+#ifdef _WIN32
+    _write(lock_fd, pid_str.c_str(), static_cast<unsigned int>(pid_str.length()));
+#else
     write(lock_fd, pid_str.c_str(), pid_str.length());
+#endif
     return true;
 }
 
 void releaseInstanceLock() {
     if (lock_fd != -1) {
+#ifdef _WIN32
+        _close(lock_fd);
+        // On Windows, recreate the full path for deletion
+        char temp_path[MAX_PATH];
+        std::string lock_file_path;
+        if (GetTempPathA(MAX_PATH, temp_path) > 0) {
+            lock_file_path = std::string(temp_path) + INSTANCE_LOCK_FILE;
+        } else {
+            lock_file_path = "C:\\temp\\" + std::string(INSTANCE_LOCK_FILE);
+        }
+        _unlink(lock_file_path.c_str());
+#else
         close(lock_fd);
         unlink(INSTANCE_LOCK_FILE);
+#endif
         lock_fd = -1;
     }
 }
@@ -425,7 +510,7 @@ void registerMemoryModule() {
         // Check if another instance is already running
         if (!acquireInstanceLock()) {
             std::cerr << "[Native SA] Another memory SA instance is already running, skipping..."
-                      << std::endl;
+                      << '\n';
             return;
         }
 
@@ -438,12 +523,32 @@ void registerMemoryModule() {
     }
 }
 
-// Auto-register when library is loaded
+#ifdef _WIN32
+// Windows DLL entry point
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+    switch (fdwReason) {
+        case DLL_PROCESS_ATTACH:
+            registerMemoryModule();
+            break;
+        case DLL_PROCESS_DETACH: {
+            std::lock_guard<std::mutex> lock(module_mutex);
+            if (memoryModule) {
+                delete memoryModule;
+                memoryModule = nullptr;
+            }
+            releaseInstanceLock();
+            module_registered = false;
+        } break;
+    }
+    return TRUE;
+}
+#else
+// Auto-register when library is loaded (Unix/Linux)
 __attribute__((constructor)) void initModule() {
     registerMemoryModule();
 }
 
-// Cleanup on unload
+// Cleanup on unload (Unix/Linux)
 __attribute__((destructor)) void cleanupModule() {
     std::lock_guard<std::mutex> lock(module_mutex);
     if (memoryModule) {
@@ -453,4 +558,5 @@ __attribute__((destructor)) void cleanupModule() {
     releaseInstanceLock();
     module_registered = false;
 }
+#endif
 }

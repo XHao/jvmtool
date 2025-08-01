@@ -1,6 +1,8 @@
 #include "agent.h"
 
-#include <unistd.h>
+#ifndef _WIN32
+    #include <unistd.h>
+#endif
 
 #include <exception>
 #include <iostream>
@@ -11,19 +13,83 @@
 
 namespace jvmtool {
 
+constexpr JvmtiErrorInfo getJvmtiErrorInfo(jvmtiError error) {
+    switch (error) {
+        case JVMTI_ERROR_NULL_POINTER:
+            return {"NULL_POINTER", "Pointer parameter is NULL"};
+        case JVMTI_ERROR_OUT_OF_MEMORY:
+            return {"OUT_OF_MEMORY", "Insufficient memory"};
+        case JVMTI_ERROR_ACCESS_DENIED:
+            return {"ACCESS_DENIED", "Current thread does not own the monitor"};
+        case JVMTI_ERROR_WRONG_PHASE:
+            return {"WRONG_PHASE", "Function cannot be called during current phase"};
+        case JVMTI_ERROR_INTERNAL:
+            return {"INTERNAL", "Internal JVM error"};
+        case JVMTI_ERROR_INVALID_ENVIRONMENT:
+            return {"INVALID_ENVIRONMENT", "JVMTI environment is invalid"};
+        case JVMTI_ERROR_THREAD_NOT_SUSPENDED:
+            return {"THREAD_NOT_SUSPENDED", "Thread is not suspended"};
+        case JVMTI_ERROR_THREAD_SUSPENDED:
+            return {"THREAD_SUSPENDED", "Thread is already suspended"};
+        case JVMTI_ERROR_THREAD_NOT_ALIVE:
+            return {"THREAD_NOT_ALIVE", "Thread is not alive"};
+        case JVMTI_ERROR_CLASS_NOT_PREPARED:
+            return {"CLASS_NOT_PREPARED", "Class is not yet prepared"};
+        case JVMTI_ERROR_NO_MORE_FRAMES:
+            return {"NO_MORE_FRAMES", "No more frames on the call stack"};
+        case JVMTI_ERROR_OPAQUE_FRAME:
+            return {"OPAQUE_FRAME", "Information about the frame is not available"};
+        case JVMTI_ERROR_DUPLICATE:
+            return {"DUPLICATE", "Item already exists"};
+        case JVMTI_ERROR_NOT_FOUND:
+            return {"NOT_FOUND", "Desired element was not found"};
+        case JVMTI_ERROR_NOT_MONITOR_OWNER:
+            return {"NOT_MONITOR_OWNER", "Current thread does not own the monitor"};
+        case JVMTI_ERROR_INTERRUPT:
+            return {"INTERRUPT", "Call has been interrupted before completion"};
+        case JVMTI_ERROR_UNMODIFIABLE_CLASS:
+            return {"UNMODIFIABLE_CLASS", "Class cannot be modified"};
+        case JVMTI_ERROR_NOT_AVAILABLE:
+            return {"NOT_AVAILABLE", "Functionality is not available in this version"};
+        case JVMTI_ERROR_MUST_POSSESS_CAPABILITY:
+            return {"MUST_POSSESS_CAPABILITY", "Agent must possess the required capability"};
+        case JVMTI_ERROR_INVALID_THREAD:
+            return {"INVALID_THREAD", "Thread parameter is invalid"};
+        case JVMTI_ERROR_INVALID_FIELDID:
+            return {"INVALID_FIELDID", "Field ID is invalid"};
+        case JVMTI_ERROR_INVALID_METHODID:
+            return {"INVALID_METHODID", "Method ID is invalid"};
+        case JVMTI_ERROR_INVALID_LOCATION:
+            return {"INVALID_LOCATION", "Location is invalid"};
+        case JVMTI_ERROR_INVALID_OBJECT:
+            return {"INVALID_OBJECT", "Object parameter is invalid"};
+        case JVMTI_ERROR_INVALID_CLASS:
+            return {"INVALID_CLASS", "Class parameter is invalid"};
+        case JVMTI_ERROR_TYPE_MISMATCH:
+            return {"TYPE_MISMATCH", "Variable type does not match requested type"};
+        case JVMTI_ERROR_NATIVE_METHOD:
+            return {"NATIVE_METHOD", "Requested information is not available for native method"};
+        case JVMTI_ERROR_CLASS_LOADER_UNSUPPORTED:
+            return {"CLASS_LOADER_UNSUPPORTED", "Class loader does not support this operation"};
+        case JVMTI_ERROR_ILLEGAL_ARGUMENT:
+            return {"ILLEGAL_ARGUMENT", "Illegal argument"};
+        default:
+            return {"UNKNOWN_ERROR", "Undefined JVMTI error"};
+    }
+}
+
 void logJvmtiError(jvmtiError error, const char* context) {
     if (error == JVMTI_ERROR_NONE) {
         return;  // No error to log
     }
 
-    std::cerr << "[JVMTI Error] ";
-    if (context != nullptr) {
-        std::cerr << context << ": ";
-    }
-    std::cerr << "code(" << error << ")" << std::endl;
+    const auto [error_name, error_description] = getJvmtiErrorInfo(error);
+
+    std::cerr << "[JVMTI Error] " << error_name << " in " << (context ? context : "Unknown context")
+              << ": " << error_description << " (" << error << ")" << std::endl;
 }
 
-jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
+jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
     if (java_vm == nullptr || jvmti == nullptr) {
         return JVMTI_ERROR_NULL_POINTER;
     }
@@ -31,34 +97,11 @@ jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti, const char*
     jvmti_ = jvmti;
     vm_ = java_vm;
 
-    if (!initializeMonitor()) {
-        return JVMTI_ERROR_INTERNAL;
-    }
-
-    return JVMTI_ERROR_NONE;
+    return jvmti_->CreateRawMonitor(getName(), &module_monitor_);
 }
 
 bool AgentModule::isInitialized() const {
     return jvmti_ != nullptr && vm_ != nullptr && module_monitor_ != nullptr;
-}
-
-bool AgentModule::initializeMonitor() {
-    if (jvmti_ == nullptr) {
-        logJvmtiError(JVMTI_ERROR_WRONG_PHASE,
-                      "AgentModule::initializeMonitor - JVMTI not available");
-        return false;
-    }
-
-    if (module_monitor_ != nullptr) {
-        return true;  // Already initialized
-    }
-
-    jvmtiError err = jvmti_->CreateRawMonitor(getName(), &module_monitor_);
-    if (err != JVMTI_ERROR_NONE) {
-        logJvmtiError(err, "AgentModule::initializeMonitor - Failed to create raw monitor");
-        return false;
-    }
-    return true;
 }
 
 // AgentModule::MonitorLock implementation
@@ -106,70 +149,65 @@ void AgentManager::registerModule(AgentModule* module) {
 }
 
 jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
-    try {
-        const std::lock_guard<std::mutex> lock(modules_mutex_);
-        if (!inited_) {
-            for (auto& [name, module] : modules_) {
-                jvmtiError init_err = module->initialize(java_vm, jvmti, options);
-                if (init_err != JVMTI_ERROR_NONE) {
-                    logJvmtiError(init_err, ("AgentManager::onAttach - Module '" + name +
-                                             "' initialization failed")
-                                                .c_str());
-                }
-            }
-            inited_ = true;
-        }
+    const std::lock_guard<std::mutex> lock(modules_mutex_);
 
-        std::string target_module;
-
-        if (options != nullptr) {
-            std::string opts(options);
-            size_t analysis_pos = opts.find("analysis=");
-            if (analysis_pos != std::string::npos) {
-                size_t start = analysis_pos + 9;  // length of "analysis="
-                size_t end = opts.find(',', start);
-                if (end == std::string::npos) {
-                    end = opts.length();
-                }
-                target_module = opts.substr(start, end - start);
+    if (!inited_) {
+        for (auto it = modules_.begin(); it != modules_.end();) {
+            const auto& [name, module] = *it;
+            jvmtiError init_err = module->initialize(java_vm, jvmti);
+            if (init_err != JVMTI_ERROR_NONE) {
+                logJvmtiError(init_err, ("AgentModule::initialize - Module '" + name +
+                                         "' initialization failed")
+                                            .c_str());
+                it = modules_.erase(it);
+            } else {
+                ++it;
             }
         }
-
-        if (target_module.empty()) {
-            logJvmtiError(JVMTI_ERROR_ILLEGAL_ARGUMENT,
-                          "AgentManager::onAttach - Module name is empty");
-            return JNI_EINVAL;
-        }
-
-        auto it = modules_.find(target_module);
-        if (it != modules_.end() && it->second != nullptr) {
-            AgentModule* module = it->second;
-            if (!module->isInitialized()) {
-                return JNI_ERR;
-            }
-            module->onAttach(options);
-            return JNI_OK;
-        } else {
-            logJvmtiError(
-                JVMTI_ERROR_ILLEGAL_ARGUMENT,
-                ("AgentManager::onAttach - Module '" + target_module + "' is not loaded").c_str());
-            return JNI_EINVAL;
-        }
-    } catch (const std::exception& exception) {
-        logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());
+        inited_ = true;
     }
-    return JNI_ERR;
+
+    std::string target_module;
+
+    if (options != nullptr) {
+        std::string opts(options);
+        size_t analysis_pos = opts.find("analysis=");
+        if (analysis_pos != std::string::npos) {
+            size_t start = analysis_pos + 9;  // length of "analysis="
+            size_t end = opts.find(',', start);
+            if (end == std::string::npos) {
+                end = opts.length();
+            }
+            target_module = opts.substr(start, end - start);
+        }
+    }
+
+    auto it = modules_.find(target_module);
+    if (it != modules_.end() && it->second != nullptr) {
+        const auto& [_, module] = *it;
+        return module->onAttach(options);
+    }
+
+    logJvmtiError(
+        JVMTI_ERROR_ILLEGAL_ARGUMENT,
+        ("AgentManager::onAttach - Module '" + target_module + "' is not loaded").c_str());
+    return JNI_EINVAL;
 }
 
 }  // namespace jvmtool
 
 JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*reserved*/) {
-    jvmtiEnv* jvmti = nullptr;
-    const jint res = java_vm->GetEnv(reinterpret_cast<void**>(&jvmti), JVMTI_VERSION_1_2);
-    if (res != JNI_OK || jvmti == nullptr) {
-        return JNI_ERR;
+    try {
+        jvmtiEnv* jvmti = nullptr;
+        const jint res = java_vm->GetEnv(reinterpret_cast<void**>(&jvmti), JVMTI_VERSION_1_2);
+        if (res != JNI_OK || jvmti == nullptr) {
+            return JNI_ERR;
+        }
+        return jvmtool::AgentManager::instance().onAttach(java_vm, jvmti, options);
+    } catch (const std::exception& exception) {
+        jvmtool::logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());
     }
-    return jvmtool::AgentManager::instance().onAttach(java_vm, jvmti, options);
+    return JNI_ERR;
 }
 
 JNIEXPORT void JNICALL Agent_OnUnload(JavaVM* java_vm) {

@@ -213,8 +213,39 @@ endif()
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
+
+# Platform-specific compiler optimization flags
+if(MSVC)
+    # Microsoft Visual C++ compiler flags
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /DNDEBUG")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /O2 /DNDEBUG")
+    
+    # MSVC-specific settings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W3")
+    
+    # Disable specific MSVC warnings that are common with GoogleTest
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # Disable 'function': was declared deprecated
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244")  # Disable conversion warnings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267")  # Disable size_t conversion warnings
+    
+    # Enable parallel compilation
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
+    
+    # Set Windows-specific definitions
+    add_definitions(-D_WIN32_WINNT=0x0601)  # Windows 7+
+    add_definitions(-DNOMINMAX)             # Prevent min/max macro conflicts
+    add_definitions(-DWIN32_LEAN_AND_MEAN)  # Reduce Windows headers
+else()
+    # GCC/Clang compiler flags (Unix/Linux/macOS)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
+    
+    # Enable additional warnings for GCC/Clang
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
+endif()
 
 
 option(BUILD_TESTS "Build unit tests" ON)

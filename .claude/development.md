@@ -200,8 +200,39 @@ type AgentMessage struct {
 - Public method documentation with parameters and behavior
 - RAII patterns for resource management
 
+**Modern C++ Practices**:
+- **Prefer modern C++17/20 features** when appropriate for better performance and readability
+- Use `constexpr` functions for compile-time evaluation
+- Leverage structured bindings `auto [a, b] = function()` instead of separate assignments
+- Use aggregate initialization `return {"name", "description"}` over verbose constructors
+- Apply `auto` for type deduction where it improves clarity
+- Prefer smart pointers (`std::unique_ptr`, `std::shared_ptr`) over raw pointers when possible
+- Use range-based for loops and STL algorithms over traditional loops
+
 **Example**:
 ```cpp
+// Modern C++ approach - using structured bindings and constexpr
+struct ErrorInfo {
+    const char* name;
+    const char* description;
+    constexpr ErrorInfo(const char* n, const char* d) : name(n), description(d) {}
+};
+
+// Constexpr function for compile-time evaluation
+constexpr ErrorInfo getErrorInfo(int code) {
+    switch (code) {
+        case 100: return {"NULL_POINTER", "Pointer parameter is NULL"};
+        case 101: return {"OUT_OF_MEMORY", "Insufficient memory"};
+        default:  return {"UNKNOWN", "Undefined error"};
+    }
+}
+
+void logError(int error_code) {
+    // Modern structured binding instead of separate assignments
+    const auto [name, description] = getErrorInfo(error_code);
+    std::cerr << "Error " << name << ": " << description << std::endl;
+}
+
 // AgentModule provides abstract base for JVMTI analysis modules.
 // Handles lifecycle management, thread safety, and resource cleanup.
 class AgentModule {

@@ -10,10 +10,19 @@
 
 include(CMakePrintHelpers)
 
-# First try using CMake's built-in FindJNI
-find_package(JNI QUIET)
+# On Windows, skip CMake's built-in FindJNI to avoid path parsing issues
+# and go straight to manual detection
+if(WIN32)
+    message(STATUS "Windows detected: Skipping CMake's find_package(JNI) to avoid path issues")
+    set(JNI_FOUND FALSE)
+    set(SKIP_BUILTIN_JNI TRUE)
+else()
+    # First try using CMake's built-in FindJNI on non-Windows platforms
+    find_package(JNI QUIET)
+    set(SKIP_BUILTIN_JNI FALSE)
+endif()
 
-if(JNI_FOUND)
+if(JNI_FOUND AND NOT SKIP_BUILTIN_JNI)
     message(STATUS "✅ JNI found by CMake's find_package")
     cmake_print_variables(JNI_INCLUDE_DIRS JNI_LIBRARIES)
 else()
@@ -22,6 +31,13 @@ else()
     # Ensure JAVA_HOME is set
     if(NOT JAVA_HOME_FOUND OR NOT JAVA_HOME)
         message(FATAL_ERROR "JAVA_HOME must be set before searching for JNI. Please run FindJavaHome first.")
+    endif()
+    
+    # Normalize JAVA_HOME path on Windows to avoid backslash issues
+    if(WIN32)
+        file(TO_CMAKE_PATH "${JAVA_HOME}" JAVA_HOME_NORMALIZED)
+        set(JAVA_HOME "${JAVA_HOME_NORMALIZED}")
+        message(STATUS "Normalized JAVA_HOME: ${JAVA_HOME}")
     endif()
     
     # Manual JNI search

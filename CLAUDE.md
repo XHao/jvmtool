@@ -6,7 +6,7 @@ Through comprehensive analysis of the JVMTool project's evolving codebase and ar
 
 ### 📚 Documentation System Status (August 2025)
 
-#### 1. **Enhanced JVMTI Development Guide** (`jvmti.md`)
+#### 1. **Enhanced JVMTI Development Guide** (`./.claude/jvmti.md`)
 - **Core Programming Principles**: Thread safety, memory management, JVM interaction patterns
 - **Advanced JVMTI Features**: Heap analysis, stack inspection, capability management  
 - **Comprehensive Error Handling**: Exception safety, resource cleanup, debugging techniques
@@ -14,7 +14,7 @@ Through comprehensive analysis of the JVMTool project's evolving codebase and ar
 - **Extended Code Examples**: Production-ready JVMTI patterns and best practices
 - **Version 1.1**: Added platform constraints, memory limitations, and threading specifications
 
-#### 2. **Updated Project Analysis** (`project.md`)
+#### 2. **Updated Project Analysis** (`./.claude/project.md`)
 - **Current Architecture**: Detailed Go + C++ hybrid system with modular agent framework
 - **Protocol Deep Dive**: Complete .jt file-based IPC implementation analysis
 - **Build System Evolution**: Advanced CMake integration with custom modules
@@ -22,19 +22,13 @@ Through comprehensive analysis of the JVMTool project's evolving codebase and ar
 - **Development Branch Status**: feature/agent branch with enhanced module system
 - **Technical Maturity Assessment**: Ready for production with identified optimization areas
 
-#### 3. **Enhanced Development Guide** (`development.md`)
+#### 3. **Enhanced Development Guide** (`./.claude/development.md`)
 - **Strategic Minimal Commenting**: English-only philosophy for global accessibility
 - **Comprehensive Code Standards**: Go and C++ naming conventions, structure guidelines
 - **Advanced Project Structure**: Detailed directory organization with responsibility mapping
 - **Quality Standards**: Error handling patterns, testing practices, performance analysis
 - **Modern Development Workflow**: Git branching, CI/CD, code review processes
 - **Complete Debugging Guide**: Multi-language debugging techniques and tools
-
-#### 4. **Project Knowledge Summary** (`README.md`)
-- **Current Development Status**: August 2025 progress tracking
-- **Knowledge Base Maintenance**: Continuous documentation updates
-- **Technical Evolution**: Architecture improvements and feature enhancements
-- **Development Efficiency**: Standardized workflows and quality processes
 
 ## 🏗️ Current Project Architecture (Feature Branch)
 
@@ -176,9 +170,3 @@ These documents will serve as the project's **technical memory** and **developme
 - ✅ **Improved Global Accessibility**: Ensured all documentation supports international development teams
 
 ---
-
-**Document Version**: 1.1  
-**Creation Date**: 2025-07-31  
-**Last Updated**: 2025-07-31  
-**Maintenance Responsibility**: JVMTool Development Team  
-**Update Cycle**: Synchronized with major project changes
