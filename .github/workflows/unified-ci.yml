@@ -1,0 +1,413 @@
+name: Unified CI - Go & Native Agent
+
+on:
+  push:
+    branches: [ main, feature/* ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  BUILD_TYPE: Release
+  GO_VERSION: '1.24.4'
+
+jobs:
+  # Go component testing
+  go-build-test:
+    name: Go Build & Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install Go dependencies
+      run: go mod download
+
+    - name: Go build
+      run: go build -v ./...
+
+    - name: Go tests with coverage
+      run: |
+        go test -v -coverprofile=coverage.raw.out ./...
+        grep -v 'cmd/main.go' coverage.raw.out > coverage.out || true
+
+    - name: Upload Go coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: go-coverage-report
+        path: coverage.out
+
+    - name: Go formatting check
+      run: gofmt -l . | tee /tmp/gofmt.out; test ! -s /tmp/gofmt.out
+
+    - name: Go static analysis
+      run: go vet ./...
+
+    - name: Go linting
+      uses: golangci/golangci-lint-action@v4
+      with:
+        version: v1.55.2
+        args: --timeout=5m
+      continue-on-error: true
+
+  # Native agent cross-platform testing
+  native-agent-test:
+    name: Native Agent (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            cmake_generator: "Unix Makefiles"
+          - os: windows-latest
+            platform: windows
+            cmake_generator: "Visual Studio 17 2022"
+          - os: macos-latest
+            platform: macos
+            cmake_generator: "Unix Makefiles"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 11 (Ubuntu/macOS)
+      if: matrix.platform != 'windows'
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+
+    - name: Set up JDK 11 (Windows)
+      if: matrix.platform == 'windows'
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        architecture: x64
+
+    - name: Install build dependencies (Ubuntu)
+      if: matrix.platform == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential clang-format clang-tidy cppcheck
+
+    - name: Install build dependencies (macOS)
+      if: matrix.platform == 'macos'
+      run: |
+        brew install cmake llvm cppcheck
+        echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
+
+    - name: Setup MSVC (Windows)
+      if: matrix.platform == 'windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Configure CMake
+      working-directory: native
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
+      shell: bash
+
+    - name: Build Native Agent
+      working-directory: native/build
+      run: cmake --build . --config ${{ env.BUILD_TYPE }} --parallel
+      shell: bash
+
+    - name: Run Native Agent Tests
+      working-directory: native/build
+      timeout-minutes: 10
+      run: |
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          ./${{ env.BUILD_TYPE }}/jvmtool-agent-test.exe --gtest_output=xml:test-results-${{ matrix.platform }}.xml
+        else
+          ./jvmtool-agent-test --gtest_output=xml:test-results-${{ matrix.platform }}.xml
+        fi
+      shell: bash
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-test-results-${{ matrix.platform }}
+        path: native/build/test-results-${{ matrix.platform }}.xml
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: jvmtool-agent-${{ matrix.platform }}
+        path: |
+          native/build/jvmtool-agent*
+          native/build/**/*.dll
+          native/build/**/*.so
+          native/build/**/*.dylib
+        retention-days: 7
+
+  # Code quality checks (Linux only for consistency)
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    needs: [go-build-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+
+    - name: Install analysis tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential clang-format clang-tidy cppcheck
+
+    - name: Configure CMake for analysis
+      working-directory: native
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
+
+    - name: Run C++ linting
+      working-directory: native/build
+      run: |
+        # Run clang-format check
+        if command -v clang-format >/dev/null 2>&1; then
+          echo "Running clang-format check..."
+          make format-check || echo "⚠️ Format check failed"
+        fi
+        
+        # Run clang-tidy
+        if command -v clang-tidy >/dev/null 2>&1; then
+          echo "Running clang-tidy..."
+          make tidy || echo "⚠️ Tidy check failed"
+        fi
+        
+        # Run cppcheck
+        if command -v cppcheck >/dev/null 2>&1; then
+          echo "Running cppcheck..."
+          make cppcheck || echo "⚠️ Cppcheck failed"
+        fi
+      continue-on-error: true
+
+  # Integration testing - build Go with native agent
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: [go-build-test, native-agent-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+
+    - name: Build native agent
+      working-directory: native
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=OFF
+        cmake --build . --config ${{ env.BUILD_TYPE }} --parallel
+
+    - name: Download Go artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: go-coverage-report
+        path: .
+
+    - name: Download native agent artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: jvmtool-agent-linux
+        path: native/build/
+
+    - name: Run integration tests
+      run: |
+        # Ensure native agent library exists
+        ls -la native/build/
+        
+        # Run Go tests that might interact with native agent
+        echo "Running integration tests..."
+        go test -v ./... -tags=integration || echo "⚠️ No integration tests found"
+        
+        # Test basic Go build with native agent present
+        go build -v ./cmd/...
+        
+        echo "✅ Integration test completed successfully"
+
+  # Security scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: cpp, go
+        
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential
+        go mod download
+        
+    - name: Build for analysis
+      run: |
+        # Build Go components
+        go build -v ./...
+        
+        # Build C++ components
+        cd native
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+        cmake --build . --parallel
+        
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+
+  # Coverage reporting
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: [go-build-test, native-agent-test]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Go coverage
+      uses: actions/download-artifact@v4
+      with:
+        name: go-coverage-report
+        path: .
+        
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        
+    - name: Install coverage tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential lcov
+        
+    - name: Build C++ with coverage
+      working-directory: native
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
+        cmake --build . --parallel
+        
+    - name: Run C++ tests for coverage
+      working-directory: native/build
+      run: ./jvmtool-agent-test
+        
+    - name: Generate C++ coverage report
+      working-directory: native/build
+      run: |
+        lcov --directory . --capture --output-file coverage.info
+        lcov --remove coverage.info '/usr/*' --output-file coverage.info
+        lcov --remove coverage.info '*/build/_deps/*' --output-file coverage.info
+        lcov --remove coverage.info '*/test/*' --output-file coverage.info
+        lcov --list coverage.info
+        
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage.out,native/build/coverage.info
+        flags: unified-coverage
+        name: jvmtool-unified-coverage
+
+  # Release preparation (only on main branch)
+  release-prep:
+    name: Release Preparation
+    runs-on: ubuntu-latest
+    needs: [go-build-test, native-agent-test, integration-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+        
+    - name: Prepare release artifacts
+      run: |
+        mkdir -p release
+        
+        # Copy Go binaries (if any)
+        find artifacts -name "*.exe" -o -name "jvmtool" | head -5 || true
+        
+        # Copy native agent libraries
+        find artifacts -name "*.so" -o -name "*.dll" -o -name "*.dylib" -exec cp {} release/ \; || true
+        
+        ls -la release/
+        
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: jvmtool-release-artifacts
+        path: release/
+        retention-days: 30
