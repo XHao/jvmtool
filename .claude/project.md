@@ -1,68 +1,44 @@
-# JVMTool Project Analysis & Documentation
+# JVMTool Project Documentation
 
-This document provides a comprehensive analysis of the JVMTool project, serving as a knowledge base for development and maintenance.
+A Go-based application with C++ JVMTI agents for comprehensive JVM monitoring and analysis.
 
 ## 🚀 Project Overview
 
-**JVMTool** is a sophisticated Go-based application that interfaces with native C++ JVMTI agents to provide comprehensive JVM monitoring, profiling, and analysis capabilities. It combines the performance of native code with the convenience of Go's ecosystem.
+**JVMTool** combines Go's ecosystem with native C++ JVMTI agents for JVM monitoring, profiling, and analysis.
 
-### Key Features
-- **Multi-command Interface**: Supports `jps` (list Java processes), `jattach` (attach agents), and `sa` (ServiceAbility agent)
-- **Cross-platform Support**: Linux, macOS, and Windows
-- **JVMTI Integration**: Deep JVM introspection via native agents
-- **File-based Protocol**: Robust communication between Go and C++ components
+### Core Features
+- **Multi-command Interface**: `jps`, `jattach`, `sa` commands
+- **Cross-platform**: Linux, macOS, Windows
+- **JVMTI Integration**: Native JVM introspection
+- **File-based Protocol**: Go ↔ C++ communication via `.jt` files
 - **Modular Architecture**: Extensible agent system
 
-## 🏗️ Project Structure
+## 🏗️ Architecture
 
-### Go Application Layer (`cmd/`, `pkg/`, `internal/`)
+### Application Structure
+```
+Go Layer (cmd/, pkg/, internal/)     Native Layer (native/)
+├── Command Interface               ├── JVMTI Agent Framework
+├── Public Libraries               ├── Analysis Modules  
+├── Internal Implementation        └── Communication Protocol
+└── Protocol Client                
+```
 
-#### Command Interface (`cmd/`)
-- **`main.go`**: Entry point with command dispatching
-  - Generic command runner with type-safe flag parsing
-  - Support for `jps`, `jattach`, and `sa` commands
-  - Standardized error handling and exit codes
+### Key Components
 
-#### Public Libraries (`pkg/`)
-- **`agent_validator.go`**: Cross-platform agent validation
-- **`java_process.go`**: Java process discovery and management
-- **`os.go`**: OS-specific utilities and abstractions
-- **`user.go`**: User validation and privilege handling
+**Go Application**:
+- `cmd/main.go`: Command dispatch and execution
+- `pkg/`: Cross-platform utilities (process, agent validation)
+- `internal/`: Core logic (jps, jattach, sa, protocol)
 
-#### Internal Implementation (`internal/`)
-- **`jt_protocol.go`**: File-based communication protocol implementation
-- **`jattach.go`**: Agent attachment functionality
-- **`jps.go`**: Java process listing
-- **`sa_agent.go`**: ServiceAbility agent operations
-- **`jvm.go`**: JVM interaction utilities
-
-### Native Agent Layer (`native/`)
-
-#### Core Headers (`include/`)
-- **`agent.h`**: JVMTI agent framework and module system
-- **`file_protocol.h`**: Cross-language communication protocol
-- **`message.h`**: Message serialization/deserialization
-- **`writer.h`**: Efficient data output handling
-
-#### Implementation (`src/`)
-- **`agent.cpp`**: Main agent manager and module orchestration
-- **`file_protocol.cpp`**: Protocol implementation
-- **`message.cpp`**: Message handling
-- **`build_info.cpp`**: Build metadata integration
-
-#### Specialized Modules (`modules/`)
-- **`memory_sa_agent.cpp`**: Memory analysis and ServiceAbility integration
-
-### Build System
-- **`Makefile`**: Cross-platform build orchestration
-- **`CMakeLists.txt`**: Native code compilation with JNI integration
-- **Custom CMake modules**: Java detection and JNI header resolution
+**Native Agents**:
+- `native/include/`: Agent framework headers
+- `native/src/`: Core agent implementation
+- `native/modules/`: Analysis modules (memory_sa_agent.cpp)
 
 ## 🔄 Communication Protocol
 
-### Architecture Overview
-The project implements a sophisticated file-based IPC mechanism between Go and C++ components:
-
+### Protocol Architecture
 ```
 Go Application  <--  .jt files  -->  C++ JVMTI Agent
      ↓                                      ↓
@@ -71,28 +47,19 @@ JTProtocolReader                    FileProtocol
 AgentMessage                          Message
 ```
 
-### Message Types & Status Codes
-
-#### C++ Side (`file_protocol.h`)
+### Message Types
 ```cpp
+// C++ Side
 enum class MessageType {
-    STATUS = 0,     // Agent lifecycle status
-    ERROR = 1,      // Error reporting
-    DATA = 2,       // Analysis data
-    PROGRESS = 3,   // Operation progress
-    RESULT = 4      // Final results
+    STATUS = 0, ERROR = 1, DATA = 2, PROGRESS = 3, RESULT = 4
 };
-
 enum class StatusCode {
-    SUCCESS = 0,    // Operation completed successfully
-    ERROR = 1,      // Error occurred
-    RUNNING = 2,    // Operation in progress
-    COMPLETED = 3   // All operations finished
+    SUCCESS = 0, ERROR = 1, RUNNING = 2, COMPLETED = 3
 };
 ```
 
-#### Go Side (`jt_protocol.go`)
 ```go
+// Go Side
 type AgentMessage struct {
     Type      MessageType
     Status    StatusCode
@@ -103,63 +70,44 @@ type AgentMessage struct {
 ```
 
 ### Protocol Flow
-1. **Initialization**: Go creates unique `.jt` file path
-2. **Agent Launch**: C++ agent receives path via options
-3. **Status Updates**: Agent writes structured messages
-4. **Polling**: Go polls file for updates using `WaitForStatus`
-5. **Data Exchange**: Bidirectional structured communication
-6. **Cleanup**: Automatic file cleanup on completion
+1. Go creates unique `.jt` file path
+2. C++ agent receives path via options
+3. Agent writes structured messages
+4. Go polls file for updates
+5. Automatic cleanup on completion
 
-## 🔧 Build System & Dependencies
+## 🔧 Build & Dependencies
 
-### Go Dependencies (`go.mod`)
+### Go Dependencies
 ```go
 module github.com/XHao/jvmtool
 
 require (
-    github.com/shirou/gopsutil v2.21.11+incompatible  // System process info
-    github.com/stretchr/testify v1.10.0               // Testing framework
+    github.com/shirou/gopsutil v2.21.11+incompatible  // Process info
+    github.com/stretchr/testify v1.10.0               // Testing
     golang.org/x/sys v0.33.0                          // System calls
 )
 ```
 
-### Native Build Requirements
-- **CMake 3.10+**: Cross-platform build system
-- **JDK with JNI headers**: Java integration
-- **C++11 compatible compiler**: Modern C++ features
-- **GoogleTest**: Unit testing framework (auto-downloaded)
+### Build Requirements
+- **CMake 3.10+**, **JDK with JNI headers**, **C++11+ compiler**
+- **GoogleTest** (auto-downloaded for testing)
 
-### Build Targets
-```makefile
-make all        # Build Go binary and native libraries
-make build-go   # Go application only
-make build-native  # C++ agents only
-make test       # Run all tests
-make package    # Create distribution packages
-make install    # System-wide installation
+### Build Commands
+```bash
+make all            # Build everything
+make build-go       # Go application only  
+make build-native   # C++ agents only
+make test           # Run all tests
+make package        # Create distribution
 ```
 
 ## 🎯 Core Functionality
 
-### 1. Java Process Discovery (`jps`)
-- Cross-platform Java process enumeration
-- User privilege validation
-- Process metadata extraction
-- Filtering and formatting options
-
-### 2. Agent Attachment (`jattach`)
-- Dynamic JVMTI agent loading
-- Parameter passing and validation
-- Attachment status monitoring
-- Error handling and recovery
-
-### 3. ServiceAbility Agent (`sa`)
-- Memory analysis and profiling
-- JVM state inspection
-- Performance metrics collection
-- Custom analysis modules
-
-## 🔍 Key Implementation Details
+### Commands
+1. **`jps`**: Java process discovery with metadata
+2. **`jattach`**: Dynamic JVMTI agent loading
+3. **`sa`**: ServiceAbility agent for memory analysis
 
 ### Agent Module System
 ```cpp
@@ -179,57 +127,40 @@ func runCommandWithFlags[T any](
 ) int
 ```
 
-### Cross-Platform Abstractions
-- OS-specific implementations for Linux, macOS, Windows
-- Unified interfaces for process management
-- Platform-specific agent validation
-
-## 🧪 Testing Strategy
+## 🧪 Testing & Development
 
 ### Test Coverage
-- **Unit Tests**: Core logic and utilities (`*_test.go`)
-- **Integration Tests**: End-to-end command testing
-- **Native Tests**: C++ component validation (GoogleTest)
-- **Mock Objects**: Isolated testing of components
+- **Go Tests**: Unit tests (`*_test.go`) with testify framework
+- **C++ Tests**: GoogleTest for native components  
+- **Integration**: End-to-end command testing
+- **Mocking**: Isolated component testing
 
-### Test Organization
-```
-cmd/main_test.go              # Command interface tests
-internal/*_test.go            # Internal logic tests
-pkg/*_test.go                 # Public API tests
-native/test/*_test.cpp        # C++ unit tests
-```
+### Development Workflow
+1. `make dirs` → `make build` → `make test` → `make format`
+2. **Extension Points**: New commands, agent modules, protocol types
+3. **Platform Support**: OS-specific implementations
 
-## 🚀 Development Workflow
+## 📋 Current Status
 
-### Local Development
-1. **Setup**: `make dirs` to create build directories
-2. **Development**: Iterative `make build` cycles
-3. **Testing**: `make test` for validation
-4. **Formatting**: `make format` for code consistency
+### Branch: `feature/agent` 
+**Key Improvements**:
+- ✅ Modular agent architecture with AgentModule interface
+- ✅ Robust .jt file protocol for Go ↔ C++ communication  
+- ✅ Cross-platform build system (Linux/macOS/Windows)
+- ✅ Comprehensive testing with Go + GoogleTest
+- ✅ Modern C++17 RAII patterns and Go 1.24+ generics
 
-### Extension Points
-- **New Commands**: Add to `main.go` switch statement
-- **Agent Modules**: Implement `AgentModule` interface
-- **Protocol Extensions**: Extend message types and handlers
-- **Platform Support**: Add OS-specific implementations
+### Technical Highlights
+- **Agent System**: Thread-safe module lifecycle with RawMonitor synchronization
+- **Protocol**: Type-safe message parsing with metadata support
+- **Build**: Unified Makefile + CMake with auto Java/JNI detection
+- **Code Quality**: Strategic minimal English-only commenting philosophy
 
-## 📋 Project Status & Roadmap
-
-### Current Branch: `feature/agent`
-- Enhanced agent architecture
-- Improved protocol stability
-- Extended testing coverage
-
-### Key Improvements Made
-1. **Modular Agent System**: Pluggable analysis modules
-2. **Robust Protocol**: Better error handling and status tracking
-3. **Cross-Platform Support**: Unified build system
-4. **Comprehensive Testing**: Unit and integration test suites
-5. **Documentation**: Detailed API and usage documentation
+### Development Status (August 2025)
+- ✅ Core functionality (jps, jattach, sa) working
+- ✅ Agent architecture and protocol stability
+- ✅ Testing coverage and documentation
+- 🚧 Performance optimization and enhanced observability
 
 ---
-
-**Last Updated**: 2025-07-31  
-**Version**: Development Branch `feature/agent`  
-**Maintainer**: XHao/jvmtool team
+**Updated**: 2025-08-01 | **Branch**: `feature/agent` | **Team**: XHao/jvmtool
