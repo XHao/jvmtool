@@ -20,6 +20,9 @@ inline constexpr ContentType ERROR = 1;
 inline constexpr ContentType DATA = 2;
 
 // Message header (fixed size for easy parsing)
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+#endif
 struct MessageHeader {
     uint8_t version;           // Protocol version
     AgentType agent_type;      // Agent type
@@ -32,10 +35,14 @@ struct MessageHeader {
 
     // Utility methods
     [[nodiscard]] bool isValid() const;
-#ifdef _WIN32
-} __declspec(align(1));
+}
+#if defined(_MSC_VER)
+;
+#pragma pack(pop)
+#elif defined(__GNUC__)
+__attribute__((packed));
 #else
-} __attribute__((packed));
+;
 #endif
 
 // Complete message structure
