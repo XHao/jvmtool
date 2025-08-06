@@ -65,23 +65,18 @@ jobs:
         args: --timeout=5m
       continue-on-error: true
 
-  # Native agent cross-platform testing
+  # Native agent cross-platform testing using Makefile
   native-agent-test:
     name: Native Agent (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
         include:
           - os: ubuntu-latest
             platform: linux
-            cmake_generator: "Unix Makefiles"
-          - os: windows-latest
-            platform: windows
-            cmake_generator: "Visual Studio 17 2022"
           - os: macos-latest
             platform: macos
-            cmake_generator: "Unix Makefiles"
 
     runs-on: ${{ matrix.os }}
 
@@ -89,113 +84,65 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up JDK 11 (Ubuntu/macOS)
-      if: matrix.platform != 'windows'
+    - name: Set up JDK 11
       uses: actions/setup-java@v4
       with:
         java-version: '11'
         distribution: 'temurin'
 
-    - name: Set up JDK 11 (Windows)
-      if: matrix.platform == 'windows'
-      uses: actions/setup-java@v4
+    - name: Set up Go
+      uses: actions/setup-go@v5
       with:
-        java-version: '11'
-        distribution: 'temurin'
-        architecture: x64
+        go-version: ${{ env.GO_VERSION }}
 
     - name: Install build dependencies (Ubuntu)
       if: matrix.platform == 'linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential clang-format clang-tidy cppcheck
+        sudo apt-get install -y cmake build-essential clang-format clang-tidy cppcheck lcov
 
     - name: Install build dependencies (macOS)
       if: matrix.platform == 'macos'
       run: |
-        brew install cmake llvm cppcheck
+        brew install cmake llvm cppcheck lcov
         echo "/opt/homebrew/opt/llvm/bin" >> $GITHUB_PATH
 
-    - name: Setup MSVC (Windows)
-      if: matrix.platform == 'windows'
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: x64
-
-    - name: Fix JAVA_HOME path on Windows
-      if: matrix.platform == 'windows'
-      shell: powershell
-      run: |
-        $javahome = $env:JAVA_HOME
-        Write-Host "Original JAVA_HOME: $javahome"
-        # Convert forward slashes to backslashes and remove trailing slashes
-        $javahome = $javahome -replace '/', '\'
-        $javahome = $javahome.TrimEnd('\')
-        Write-Host "Fixed JAVA_HOME: $javahome"
-        echo "JAVA_HOME=$javahome" >> $env:GITHUB_ENV
-        
-        # Also set it for this session
-        $env:JAVA_HOME = $javahome
-        
-        # Verify the path exists and contains JNI headers
-        if (Test-Path "$javahome\include\jni.h") {
-          Write-Host "✅ JNI headers found at $javahome\include\jni.h"
-        } else {
-          Write-Host "❌ JNI headers NOT found at $javahome\include\jni.h"
-          Get-ChildItem "$javahome" -Recurse -Name "jni.h" | Select-Object -First 5
-        }
-
-    - name: Configure CMake
-      working-directory: native
-      run: |
-        mkdir -p build
-        cd build
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          # On Windows, explicitly set Java paths to avoid FindJNI path parsing issues
-          cmake .. -G "${{ matrix.cmake_generator }}" \
-            -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
-            -DBUILD_TESTS=ON \
-            -DJAVA_HOME="$JAVA_HOME" \
-            -DJAVA_INCLUDE_PATH="$JAVA_HOME/include" \
-            -DJAVA_INCLUDE_PATH2="$JAVA_HOME/include/win32" \
-            -DJAVA_AWT_INCLUDE_PATH="$JAVA_HOME/include"
-        else
-          cmake .. -G "${{ matrix.cmake_generator }}" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DBUILD_TESTS=ON
-        fi
-      shell: bash
-
-    - name: Build Native Agent
-      working-directory: native/build
-      run: cmake --build . --config ${{ env.BUILD_TYPE }} --parallel
-      shell: bash
-
-    - name: Run Native Agent Tests
-      working-directory: native/build
+    - name: Run unified tests via Makefile
       timeout-minutes: 10
-      run: |
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          ./${{ env.BUILD_TYPE }}/jvmtool-agent-test.exe --gtest_output=xml:test-results-${{ matrix.platform }}.xml
-        else
-          ./jvmtool-agent-test --gtest_output=xml:test-results-${{ matrix.platform }}.xml
-        fi
+      run: make test
       shell: bash
+
+    - name: Generate C++ coverage report (Ubuntu only)
+      if: matrix.platform == 'linux'
+      run: |
+        make coverage-report || echo "⚠️ Coverage generation failed but tests passed"
+      continue-on-error: true
+
+    - name: Upload C++ coverage report (Ubuntu only)
+      if: matrix.platform == 'linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: cpp-coverage-report
+        path: |
+          native/build/coverage.clean.info
+          native/build/coverage_html/
+        retention-days: 7
+      continue-on-error: true
 
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: native-test-results-${{ matrix.platform }}
-        path: native/build/test-results-${{ matrix.platform }}.xml
+        path: native/build/Testing/
 
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
         name: jvmtool-agent-${{ matrix.platform }}
         path: |
-          native/build/jvmtool-agent*
-          native/build/**/*.dll
-          native/build/**/*.so
-          native/build/**/*.dylib
+          dist/lib/jvmtool-agent*
+          dist/bin/jvmtool
         retention-days: 7
 
   # Code quality checks (Linux only for consistency)
@@ -383,31 +330,29 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake build-essential lcov
         
-    - name: Build C++ with coverage
-      working-directory: native
-      run: |
-        mkdir -p build
-        cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON -DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"
-        cmake --build . --parallel
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
         
-    - name: Run C++ tests for coverage
-      working-directory: native/build
-      run: ./jvmtool-agent-test
+    - name: Set up JDK 11
+      uses: actions/setup-java@v4
+      with:
+        java-version: '11'
+        distribution: 'temurin'
         
-    - name: Generate C++ coverage report
-      working-directory: native/build
+    - name: Generate Go coverage
       run: |
-        lcov --directory . --capture --output-file coverage.info
-        lcov --remove coverage.info '/usr/*' --output-file coverage.info
-        lcov --remove coverage.info '*/build/_deps/*' --output-file coverage.info
-        lcov --remove coverage.info '*/test/*' --output-file coverage.info
-        lcov --list coverage.info
+        go test -v -coverprofile=coverage.out ./...
+        grep -v 'cmd/main.go' coverage.out > coverage.filtered.out || true
+        
+    - name: Generate C++ coverage via Makefile
+      run: make coverage
         
     - name: Upload coverage reports
       uses: codecov/codecov-action@v4
       with:
-        files: ./coverage.out,native/build/coverage.info
+        files: ./coverage.filtered.out,native/build/coverage.info
         flags: unified-coverage
         name: jvmtool-unified-coverage
 
@@ -432,10 +377,10 @@ jobs:
         mkdir -p release
         
         # Copy Go binaries (if any)
-        find artifacts -name "*.exe" -o -name "jvmtool" | head -5 || true
+        find artifacts -name "jvmtool" | head -5 || true
         
         # Copy native agent libraries
-        find artifacts -name "*.so" -o -name "*.dll" -o -name "*.dylib" -exec cp {} release/ \; || true
+        find artifacts -name "*.so" -o -name "*.dylib" -exec cp {} release/ \; || true
         
         ls -la release/
         

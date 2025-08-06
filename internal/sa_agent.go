@@ -161,8 +161,6 @@ func findNativeAgent() (string, error) {
 		libExt = "dylib"
 	case "linux":
 		libExt = "so"
-	case "windows":
-		libExt = "dll"
 	default:
 		libExt = "so"
 	}

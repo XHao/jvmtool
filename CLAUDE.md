@@ -36,7 +36,7 @@ Through comprehensive analysis of the JVMTool project's evolving codebase and ar
 1. **Modular Agent System**: Abstract AgentModule with pluggable analysis components
 2. **Thread-Safe Design**: RAII MonitorLock patterns and RawMonitor synchronization
 3. **Robust Protocol**: Type-safe .jt file parsing with comprehensive error handling
-4. **Cross-Platform Excellence**: Unified build system supporting Linux/macOS/Windows
+4. **Cross-Platform Excellence**: Unified build system supporting Linux/macOS
 5. **Modern Language Features**: Go 1.24 generics, C++17 RAII patterns
 6. **Quality Engineering**: Extensive testing with mocking and integration coverage
 
@@ -53,7 +53,7 @@ Through comprehensive analysis of the JVMTool project's evolving codebase and ar
 ### Technical Maturity
 - ✅ **Stable Core Architecture**: Proven modular design with clear separation of concerns
 - ✅ **Production-Ready Features**: jps, jattach, sa commands fully functional
-- ✅ **Cross-Platform Support**: Complete Linux/macOS/Windows compatibility
+- ✅ **Cross-Platform Support**: Complete Linux/macOS compatibility
 - ✅ **Comprehensive Testing**: Unit, integration, and system test coverage
 - ✅ **Development Standards**: Established coding guidelines and review processes
 - ✅ **Documentation Excellence**: Complete development knowledge base

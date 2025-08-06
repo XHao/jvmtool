@@ -13,19 +13,16 @@ LIBDIR = $(PREFIX)/lib
 # Detect OS for library extension
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
-    LIB_EXT = so
+	LIB_EXT = so
 endif
 ifeq ($(UNAME_S),Darwin)
-    LIB_EXT = dylib
+	LIB_EXT = dylib
 endif
-ifeq ($(OS),Windows_NT)
-    LIB_EXT = dll
-    BINARY_NAME = jvmtool.exe
-endif
+
 
 AGENT_LIB = jvmtool-agent.$(LIB_EXT)
 
-.PHONY: all build build-go build-native test clean package install uninstall install-info help dirs format format-check lint
+.PHONY: all build build-go build-native build-native-with-tests test test-go test-native clean package install uninstall install-info help dirs format format-check lint coverage coverage-report
 
 all: build
 
@@ -54,7 +51,21 @@ build-go: dirs generate-build-info
 # Build native agent library
 build-native: dirs generate-build-info
 	@echo "Building native agent library..."
-	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. && make jvmtool-agent
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent
+	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
+		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
+		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
+	elif [ -f "$(NATIVE_BUILD_DIR)/lib$(AGENT_LIB)" ]; then \
+		cp $(NATIVE_BUILD_DIR)/lib$(AGENT_LIB) $(DIST_DIR)/lib/$(AGENT_LIB); \
+		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
+	else \
+		echo "Warning: Native agent library not found after build"; \
+	fi
+
+# Build native agent library with tests
+build-native-with-tests: dirs generate-build-info
+	@echo "Building native agent library with tests..."
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent jvmtool-agent-test
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
 		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
 		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
@@ -70,8 +81,13 @@ clean-build-info:
 	@echo "Cleaning build information and restoring security placeholders..."
 	@./scripts/generate_build_info.sh clean
 
-test:
+test: dirs
+	@echo "Running Go tests..."
 	go test ./...
+	@echo "Running C++ tests..."
+	@cd $(NATIVE_BUILD_DIR) && \
+		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON >/dev/null && make jvmtool-agent-test >/dev/null) && \
+		ctest --output-on-failure
 
 # Code formatting and linting targets
 format: build-native
@@ -85,6 +101,29 @@ format-check: build-native
 lint: build-native
 	@echo "Running lint checks on native code..."
 	cd native && cmake --build build --target lint
+
+# Coverage targets
+coverage: dirs
+	@echo "Building with coverage enabled..."
+	@cd $(NATIVE_BUILD_DIR) && \
+		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DENABLE_COVERAGE=ON >/dev/null && make jvmtool-agent-test >/dev/null)
+	@echo "Running tests for coverage..."
+	@cd $(NATIVE_BUILD_DIR) && ctest --output-on-failure >/dev/null
+	@echo "Generating coverage report..."
+	@cd $(NATIVE_BUILD_DIR) && \
+		(lcov --directory . --capture --output-file coverage.raw.info --ignore-errors gcov,inconsistent,unsupported,format,empty,source 2>/dev/null || true) && \
+		(lcov --remove coverage.raw.info '/usr/*' '/opt/*' --output-file coverage.filtered.info --ignore-errors source,empty 2>/dev/null || true) && \
+		(lcov --remove coverage.filtered.info '*/_deps/*' --output-file coverage.clean.info --ignore-errors source,empty 2>/dev/null || true) && \
+		(lcov --remove coverage.clean.info '*/test/*' --output-file coverage.info --ignore-errors source,empty 2>/dev/null || true) && \
+		(lcov --list coverage.info 2>/dev/null || echo "Coverage report generated: native/build/coverage.info")
+
+coverage-report: coverage
+	@echo "Generating HTML coverage report..."
+	@cd $(NATIVE_BUILD_DIR) && \
+		(lcov --remove coverage.raw.info '/usr/*' '/opt/*' '*/_deps/*' --output-file coverage.clean.info --ignore-errors source,empty,inconsistent,unsupported,format,gcov 2>/dev/null || true) && \
+		(genhtml coverage.clean.info --output-directory coverage_html --ignore-errors source,empty,inconsistent,unsupported,format,category 2>/dev/null || \
+		echo "⚠ HTML coverage report generation had some issues, but coverage files are available")
+	@echo "Coverage report available at: $(NATIVE_BUILD_DIR)/coverage_html/index.html"
 
 # Create distribution package with proper directory structure
 package: build
@@ -126,15 +165,15 @@ uninstall:
 	else \
 		echo "⚠ Binary not found at $(BINDIR)/$(BINARY_NAME)"; \
 	fi
-	@REMOVED_LIBS=false; \
-	for ext in dylib so dll; do \
-		LIB_FILE="$(LIBDIR)/jvmtool-agent.$$ext"; \
-		if [ -f "$$LIB_FILE" ]; then \
-			rm -f "$$LIB_FILE"; \
-			echo "✓ Removed $$LIB_FILE"; \
-			REMOVED_LIBS=true; \
-		fi; \
-	done; \
+		@REMOVED_LIBS=false; \
+		for ext in dylib so; do \
+			LIB_FILE="$(LIBDIR)/jvmtool-agent.$$ext"; \
+			if [ -f "$$LIB_FILE" ]; then \
+				rm -f "$$LIB_FILE"; \
+				echo "✓ Removed $$LIB_FILE"; \
+				REMOVED_LIBS=true; \
+			fi; \
+		done; \
 	if [ "$$REMOVED_LIBS" = false ]; then \
 		echo "⚠ No agent libraries found in $(LIBDIR)"; \
 	fi
@@ -167,10 +206,12 @@ help:
 	@echo "  build         Build both Go binary and native agent"
 	@echo "  build-go      Build only the Go binary"
 	@echo "  build-native  Build only the native agent library"
-	@echo "  test          Run Go tests"
+	@echo "  test          Run both Go and C++ tests"
 	@echo "  format        Format native C++ code"
 	@echo "  format-check  Check native C++ code formatting"
 	@echo "  lint          Run lint checks on native code"
+	@echo "  coverage      Generate C++ code coverage report"
+	@echo "  coverage-report Generate HTML coverage report"
 	@echo "  package       Create distribution package"
 	@echo "  install       Install to system (requires build first)"
 	@echo "  uninstall     Remove from system"
@@ -183,6 +224,8 @@ help:
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
+	@echo "  make test"
+	@echo "  make coverage"
 	@echo "  make format"
 	@echo "  make format-check"
 	@echo "  make install"

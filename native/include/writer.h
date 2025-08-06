@@ -4,23 +4,19 @@
 #include <string>
 
 #include "message.h"
-#ifdef _WIN32
-    #include <windows.h>
-#else
-    #include <sys/socket.h>
-    #include <sys/un.h>
-    #include <unistd.h>
-#endif
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 namespace jvmtool {
 
-// Uses Unix domain socket on Unix/Linux, Named pipe on Windows
+// Uses Unix domain socket on Unix/Linux
 class MessageWriter {
   public:
     MessageWriter();
     ~MessageWriter();
 
-    // path: Unix socket path on Unix/Linux, pipe name on Windows
+    // path: Unix socket path
     bool initialize(const std::string& path);
 
     bool writeMessage(const Message& message);
@@ -43,11 +39,7 @@ class MessageWriter {
     std::string last_error_;
     bool is_ready_;
 
-#ifdef _WIN32
-    HANDLE pipe_handle_;
-#else
     int socket_fd_;
-#endif
 };
 
 }  // namespace jvmtool

@@ -78,6 +78,18 @@ add_library(jvmtool-agent SHARED
     ${MODULES_SOURCES}
 )
 
+# Coverage configuration
+if(ENABLE_COVERAGE)
+    message(STATUS "Coverage enabled")
+    target_compile_options(jvmtool-agent PRIVATE --coverage -fprofile-arcs -ftest-coverage)
+    target_link_libraries(jvmtool-agent PRIVATE --coverage)
+    
+    # Add coverage flags to global compile options for test targets
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+endif()
+
 # Add compile definitions for build info
 target_compile_definitions(jvmtool-agent PRIVATE
     JVMTOOL_CHECKSUM=${JVMTOOL_CHECKSUM}
@@ -94,6 +106,7 @@ set_target_properties(jvmtool-agent PROPERTIES
 option(ENABLE_CLANG_FORMAT "Enable clang-format" ON)
 option(ENABLE_CLANG_TIDY "Enable clang-tidy" ON)
 option(ENABLE_CPPCHECK "Enable cppcheck" ON)
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
 
 # Find clang-format
 if(ENABLE_CLANG_FORMAT)
@@ -215,37 +228,12 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Platform-specific compiler optimization flags
-if(MSVC)
-    # Microsoft Visual C++ compiler flags
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /DNDEBUG")
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /O2 /DNDEBUG")
-    
-    # MSVC-specific settings
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W3")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /W3")
-    
-    # Disable specific MSVC warnings that are common with GoogleTest
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4996")  # Disable 'function': was declared deprecated
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244")  # Disable conversion warnings
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4267")  # Disable size_t conversion warnings
-    
-    # Enable parallel compilation
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /MP")
-    
-    # Set Windows-specific definitions
-    add_definitions(-D_WIN32_WINNT=0x0601)  # Windows 7+
-    add_definitions(-DNOMINMAX)             # Prevent min/max macro conflicts
-    add_definitions(-DWIN32_LEAN_AND_MEAN)  # Reduce Windows headers
-else()
     # GCC/Clang compiler flags (Unix/Linux/macOS)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
-    
     # Enable additional warnings for GCC/Clang
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
-endif()
 
 
 option(BUILD_TESTS "Build unit tests" ON)

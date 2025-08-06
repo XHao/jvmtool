@@ -8,7 +8,7 @@ A Go-based application with C++ JVMTI agents for comprehensive JVM monitoring an
 
 ### Core Features
 - **Multi-command Interface**: `jps`, `jattach`, `sa` commands
-- **Cross-platform**: Linux, macOS, Windows
+- **Cross-platform**: Linux, macOS
 - **JVMTI Integration**: Native JVM introspection
 - **File-based Protocol**: Go ↔ C++ communication via `.jt` files
 - **Modular Architecture**: Extensible agent system
@@ -146,7 +146,7 @@ func runCommandWithFlags[T any](
 **Key Improvements**:
 - ✅ Modular agent architecture with AgentModule interface
 - ✅ Robust .jt file protocol for Go ↔ C++ communication  
-- ✅ Cross-platform build system (Linux/macOS/Windows)
+- ✅ Cross-platform build system (Linux/macOS)
 - ✅ Comprehensive testing with Go + GoogleTest
 - ✅ Modern C++17 RAII patterns and Go 1.24+ generics
 

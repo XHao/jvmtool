@@ -149,8 +149,6 @@ func TestFindNativeAgent(t *testing.T) {
 			expectedExt = ".dylib"
 		case "linux":
 			expectedExt = ".so"
-		case "windows":
-			expectedExt = ".dll"
 		default:
 			expectedExt = ".so"
 		}

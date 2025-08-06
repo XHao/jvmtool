@@ -41,8 +41,7 @@ type AgentResponse struct {
 // Common agent type detection logic
 func detectAgentType(agentPath string) bool {
 	return strings.HasSuffix(agentPath, ".so") ||
-		strings.HasSuffix(agentPath, ".dylib") ||
-		strings.HasSuffix(agentPath, ".dll")
+		strings.HasSuffix(agentPath, ".dylib")
 }
 
 // Common request building logic

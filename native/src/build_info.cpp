@@ -9,11 +9,7 @@
 // Global metadata instance with build-time values
 // This will be embedded in the compiled library
 extern "C" {
-#ifdef _WIN32
-    // On Windows, use #pragma to place data in custom section
-    #pragma section(".jvmtool_meta", read)
-__declspec(allocate(".jvmtool_meta"))
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
 __attribute__((section("__DATA,__jvmtool")))
 #else
 __attribute__((section(".jvmtool_meta")))

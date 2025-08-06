@@ -490,7 +490,7 @@ void logJvmtiError(jvmtiError error, const char* context) {
 - **Native Memory**: Agent is responsible for its own native memory management
 
 ### Platform Considerations
-- **Dynamic Library**: Agent must be compiled as shared library (.so/.dll/.dylib)
+- **Dynamic Library**: Agent must be compiled as shared library (.so/.dylib)
 - **JNI Version Compatibility**: Ensure compatibility with target JVM version
 - **Symbol Visibility**: Properly export required agent entry points
 - **Calling Conventions**: Follow platform-specific calling conventions
