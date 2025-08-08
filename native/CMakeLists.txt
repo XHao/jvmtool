@@ -228,6 +228,12 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Platform-specific compiler optimization flags
+if(APPLE)
+    # macOS-specific definitions for ucontext
+    add_compile_definitions(_XOPEN_SOURCE=700 _DARWIN_C_SOURCE)
+    message(STATUS "Added macOS-specific compile definitions: _XOPEN_SOURCE=700 _DARWIN_C_SOURCE")
+endif()
+
     # GCC/Clang compiler flags (Unix/Linux/macOS)
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")

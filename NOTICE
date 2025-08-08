@@ -1,0 +1,18 @@
+NOTICE
+
+jvmtool
+Copyright (c) 2025 shako
+Licensed under the MIT License. See LICENSE.
+
+Third-party attributions
+
+- async-profiler
+  - URL: https://github.com/async-profiler/async-profiler
+  - Copyright: The async-profiler authors
+  - License: Apache License, Version 2.0 (Apache-2.0)
+  - Note: Portions of this project (e.g., files under native/include and native/src) are adapted from or derived from async-profiler. The original work is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0.
+
+- GoogleTest (used for tests only)
+  - URL: https://github.com/google/googletest
+  - Copyright: Google Inc.
+  - License: BSD 3-Clause License
