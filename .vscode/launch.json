@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Java for Agent Debug",
+      "type": "lldb",
+      "request": "attach",
+      "pid": "${input:javaPid}",
+      "preLaunchTask": "Build native (Debug)",
+      "stopOnEntry": false,
+      "initCommands": [
+        "breakpoint set -n Agent_OnAttach",
+        "breakpoint set -n jvmtool::AgentManager::onAttach"
+      ]
+    },
+    {
+      "name": "Debug native unit tests (LLDB)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/native/build/jvmtool-agent-test",
+      "args": [],
+      "cwd": "${workspaceFolder}/native/build",
+      "preLaunchTask": "Build native (Debug)",
+      "stopOnEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "javaPid",
+      "type": "promptString",
+      "description": "Target Java PID",
+      "default": ""
+    }
+  ]
+}

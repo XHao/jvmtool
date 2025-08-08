@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "vadimcn.vscode-lldb",
+    "redhat.java",
+    "vscjava.vscode-java-pack",
+    "ms-vscode.cmake-tools"
+  ]
+}

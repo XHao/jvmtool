@@ -1,4 +1,5 @@
 #include "agent.h"
+#include "vm.h"
 
 #ifndef _WIN32
     #include <unistd.h>
@@ -203,6 +204,10 @@ JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*re
         if (res != JNI_OK || jvmti == nullptr) {
             return JNI_ERR;
         }
+        
+        // Initialize VM interface
+        VM::init(java_vm, jvmti);
+        
         return jvmtool::AgentManager::instance().onAttach(java_vm, jvmti, options);
     } catch (const std::exception& exception) {
         jvmtool::logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());
