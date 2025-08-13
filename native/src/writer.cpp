@@ -1,14 +1,13 @@
 #include "writer.h"
 
-#include "message.h"
 #include <cerrno>
 #include <cstring>
 
+#include "message.h"
+
 namespace jvmtool {
 
-MessageWriter::MessageWriter()
-    : is_ready_(false), socket_fd_(-1) {
-}
+MessageWriter::MessageWriter() : is_ready_(false), socket_fd_(-1) {}
 
 MessageWriter::~MessageWriter() {
     close();

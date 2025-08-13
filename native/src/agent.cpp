@@ -1,9 +1,4 @@
 #include "agent.h"
-#include "vm.h"
-
-#ifndef _WIN32
-    #include <unistd.h>
-#endif
 
 #include <exception>
 #include <iostream>
@@ -11,6 +6,8 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+
+#include "vm.h"
 
 namespace jvmtool {
 
@@ -153,6 +150,9 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
     const std::lock_guard<std::mutex> lock(modules_mutex_);
 
     if (!inited_) {
+        // Initialize VM interface first
+        VM::init(java_vm, jvmti);
+
         for (auto it = modules_.begin(); it != modules_.end();) {
             const auto& [name, module] = *it;
             jvmtiError init_err = module->initialize(java_vm, jvmti);
@@ -204,10 +204,7 @@ JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*re
         if (res != JNI_OK || jvmti == nullptr) {
             return JNI_ERR;
         }
-        
-        // Initialize VM interface
-        VM::init(java_vm, jvmti);
-        
+
         return jvmtool::AgentManager::instance().onAttach(java_vm, jvmti, options);
     } catch (const std::exception& exception) {
         jvmtool::logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());

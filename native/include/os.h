@@ -9,36 +9,37 @@
 #include <signal.h>
 #include <stddef.h>
 #include <sys/types.h>
+
 #include "arch.h"
 
+namespace jvmtool {
 
 typedef void (*SigAction)(int, siginfo_t*, void*);
 typedef void (*SigHandler)(int);
 typedef void (*TimerCallback)(void*);
 
-// Interrupt threads with this signal. The same signal is used inside JDK to interrupt I/O operations.
+// Interrupt threads with this signal. The same signal is used inside JDK to interrupt I/O
+// operations.
 const int WAKEUP_SIGNAL = SIGIO;
 
-enum ThreadState {
-    THREAD_UNKNOWN,
-    THREAD_RUNNING,
-    THREAD_SLEEPING
-};
-
+enum ThreadState { THREAD_UNKNOWN, THREAD_RUNNING, THREAD_SLEEPING };
 
 class ThreadList {
   protected:
     u32 _index;
     u32 _count;
 
-    ThreadList() : _index(0), _count(0) {
-    }
+    ThreadList() : _index(0), _count(0) {}
 
   public:
     virtual ~ThreadList() {}
 
-    u32 index() const { return _index; }
-    u32 count() const { return _count; }
+    u32 index() const {
+        return _index;
+    }
+    u32 count() const {
+        return _count;
+    }
 
     bool hasNext() const {
         return _index < _count;
@@ -47,7 +48,6 @@ class ThreadList {
     virtual int next() = 0;
     virtual void update() = 0;
 };
-
 
 // W^X memory support
 class JitWriteProtection {
@@ -59,7 +59,6 @@ class JitWriteProtection {
     JitWriteProtection(bool enable);
     ~JitWriteProtection();
 };
-
 
 class OS {
   public:
@@ -108,4 +107,6 @@ class OS {
     static bool checkPreloaded();
 };
 
-#endif // _OS_H
+}  // namespace jvmtool
+
+#endif  // _OS_H

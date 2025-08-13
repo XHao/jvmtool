@@ -5,35 +5,36 @@
 
 #ifdef __linux__
 
-#include <arpa/inet.h>
-#include <byteswap.h>
-#include <dirent.h>
-#include <dlfcn.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <link.h>
-#include <sched.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/sendfile.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <sys/time.h>
-#include <sys/times.h>
-#include <sys/types.h>
-#include <time.h>
-#include <unistd.h>
-#include "os.h"
+    #include <arpa/inet.h>
+    #include <byteswap.h>
+    #include <dirent.h>
+    #include <dlfcn.h>
+    #include <errno.h>
+    #include <fcntl.h>
+    #include <link.h>
+    #include <sched.h>
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <string.h>
+    #include <sys/mman.h>
+    #include <sys/sendfile.h>
+    #include <sys/stat.h>
+    #include <sys/syscall.h>
+    #include <sys/time.h>
+    #include <sys/times.h>
+    #include <sys/types.h>
+    #include <time.h>
+    #include <unistd.h>
 
+    #include "os.h"
 
-#ifdef __LP64__
-#  define MMAP_SYSCALL __NR_mmap
-#else
-#  define MMAP_SYSCALL __NR_mmap2
-#endif
+namespace jvmtool {
 
+    #ifdef __LP64__
+        #define MMAP_SYSCALL __NR_mmap
+    #else
+        #define MMAP_SYSCALL __NR_mmap2
+    #endif
 
 class LinuxThreadList : public ThreadList {
   private:
@@ -86,7 +87,6 @@ class LinuxThreadList : public ThreadList {
     }
 };
 
-
 JitWriteProtection::JitWriteProtection(bool enable) {
     // Not used on Linux
 }
@@ -95,12 +95,10 @@ JitWriteProtection::~JitWriteProtection() {
     // Not used on Linux
 }
 
-
 static SigAction installed_sigaction[64];
 
 const size_t OS::page_size = sysconf(_SC_PAGESIZE);
 const size_t OS::page_mask = OS::page_size - 1;
-
 
 u64 OS::nanotime() {
     struct timespec ts;
@@ -152,7 +150,7 @@ int OS::getMaxThreadId() {
     int fd = open("/proc/sys/kernel/pid_max", O_RDONLY);
     if (fd != -1) {
         ssize_t r = read(fd, buf, sizeof(buf) - 1);
-        (void) r;
+        (void)r;
         close(fd);
     }
     return atoi(buf);
@@ -215,7 +213,8 @@ ThreadState OS::threadState(int thread_id) {
 u64 OS::threadCpuTime(int thread_id) {
     clockid_t thread_cpu_clock;
     if (thread_id) {
-        thread_cpu_clock = ((~(unsigned int)(thread_id)) << 3) | 6;  // CPUCLOCK_SCHED | CPUCLOCK_PERTHREAD_MASK
+        thread_cpu_clock =
+            ((~(unsigned int)(thread_id)) << 3) | 6;  // CPUCLOCK_SCHED | CPUCLOCK_PERTHREAD_MASK
     } else {
         thread_cpu_clock = CLOCK_THREAD_CPUTIME_ID;
     }
@@ -279,8 +278,8 @@ SigAction OS::replaceCrashHandler(SigAction action) {
 int OS::getProfilingSignal(int mode) {
     static int preferred_signals[2] = {SIGPROF, SIGVTALRM};
 
-    const u64 allowed_signals =
-        1ULL << SIGPROF | 1ULL << SIGVTALRM | 1ULL << SIGSTKFLT | 1ULL << SIGPWR | -(1ULL << SIGRTMIN);
+    const u64 allowed_signals = 1ULL << SIGPROF | 1ULL << SIGVTALRM | 1ULL << SIGSTKFLT |
+                                1ULL << SIGPWR | -(1ULL << SIGRTMIN);
 
     int& signo = preferred_signals[mode];
     int initial_signo = signo;
@@ -288,8 +287,10 @@ int OS::getProfilingSignal(int mode) {
 
     do {
         struct sigaction sa;
-        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo && sigaction(signo, NULL, &sa) == 0) {
-            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN || sa.sa_sigaction == installed_sigaction[signo]) {
+        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo &&
+            sigaction(signo, NULL, &sa) == 0) {
+            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN ||
+                sa.sa_sigaction == installed_sigaction[signo]) {
                 return signo;
             }
         }
@@ -305,7 +306,8 @@ bool OS::sendSignalToThread(int thread_id, int signo) {
 void* OS::safeAlloc(size_t size) {
     // Naked syscall can be used inside a signal handler.
     // Also, we don't want to catch our own calls when profiling mmap.
-    intptr_t result = syscall(MMAP_SYSCALL, NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    intptr_t result = syscall(MMAP_SYSCALL, NULL, size, PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (result < 0 && result > -4096) {
         return NULL;
     }
@@ -434,4 +436,6 @@ bool OS::checkPreloaded() {
     return dl_iterate_phdr(checkPreloadedCallback, (void*)info) == 1;
 }
 
-#endif // __linux__
+}  // namespace jvmtool
+
+#endif  // __linux__

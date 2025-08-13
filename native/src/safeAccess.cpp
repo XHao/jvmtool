@@ -4,23 +4,24 @@
  */
 
 #include "safeAccess.h"
+
 #include "stackFrame.h"
 
+extern jvmtool::instruction_t load_end[];
+extern jvmtool::instruction_t load32_end[];
+
+namespace jvmtool {
 #ifdef __clang__
-#  define NOINLINE __attribute__((noinline))
+    #define NOINLINE __attribute__((noinline))
 #else
-#  define NOINLINE __attribute__((noinline,noclone))
+    #define NOINLINE __attribute__((noinline, noclone))
 #endif
 
 #ifdef __APPLE__
-#  define LABEL(sym) asm volatile(".globl _" #sym "\n_" #sym ":")
+    #define LABEL(sym) asm volatile(".globl _" #sym "\n_" #sym ":")
 #else
-#  define LABEL(sym) asm volatile(".globl " #sym "\n" #sym ":")
+    #define LABEL(sym) asm volatile(".globl " #sym "\n" #sym ":")
 #endif
-
-
-extern instruction_t load_end[];
-extern instruction_t load32_end[];
 
 NOINLINE
 void* SafeAccess::load(void** ptr, void* default_value) {
@@ -64,8 +65,7 @@ int32_t SafeAccess::load32(int32_t* ptr, int32_t default_value) {
 // this function skips the fault instruction pretending it has loaded default_value
 bool SafeAccess::checkFault(StackFrame& frame) {
     instruction_t* pc = (instruction_t*)frame.pc();
-    if (!(pc >= (void*)load && pc < load_end) &&
-        !(pc >= (void*)load32 && pc < load32_end)) {
+    if (!(pc >= (void*)load && pc < ::load_end) && !(pc >= (void*)load32 && pc < ::load32_end)) {
         return false;
     }
 
@@ -83,3 +83,5 @@ bool SafeAccess::checkFault(StackFrame& frame) {
 
     return true;
 }
+
+}  // namespace jvmtool

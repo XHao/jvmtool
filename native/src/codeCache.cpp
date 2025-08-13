@@ -1,20 +1,22 @@
 /*
  * Copyright The async-profiler authors
  * SPDX-License-Identifier: Apache-2.0
- * 
+ *
  * Modified by: shako
  * Modifications: Removed log.h dependency for jvmtool compatibility
  */
+
+#include "codeCache.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include "codeCache.h"
+
 #include "dwarf.h"
 #include "os.h"
 
-
+namespace jvmtool {
 char* NativeFunc::create(const char* name, short lib_index) {
     NativeFunc* f = (NativeFunc*)malloc(sizeof(NativeFunc) + 1 + strlen(name));
     f->_lib_index = lib_index;
@@ -30,10 +32,8 @@ size_t NativeFunc::usedMemory(const char* name) {
     return sizeof(NativeFunc) + 1 + strlen(from(name)->_name);
 }
 
-
-CodeCache::CodeCache(const char* name, short lib_index,
-                     const void* min_address, const void* max_address,
-                     const char* image_base) {
+CodeCache::CodeCache(const char* name, short lib_index, const void* min_address,
+                     const void* max_address, const char* image_base) {
     _name = NativeFunc::create(name, -1);
 
     _lib_index = lib_index;
@@ -81,7 +81,8 @@ void CodeCache::add(const void* start, int length, const char* name, bool update
     char* name_copy = NativeFunc::create(name, _lib_index);
     // Replace non-printable characters
     for (char* s = name_copy; *s != 0; s++) {
-        if (*s < ' ') *s = '?';
+        if (*s < ' ')
+            *s = '?';
     }
 
     if (_count >= _capacity) {
@@ -100,17 +101,22 @@ void CodeCache::add(const void* start, int length, const char* name, bool update
 }
 
 void CodeCache::updateBounds(const void* start, const void* end) {
-    if (start < _min_address) _min_address = start;
-    if (end > _max_address) _max_address = end;
+    if (start < _min_address)
+        _min_address = start;
+    if (end > _max_address)
+        _max_address = end;
 }
 
 void CodeCache::sort() {
-    if (_count == 0) return;
+    if (_count == 0)
+        return;
 
     qsort(_blobs, _count, sizeof(CodeBlob), CodeBlob::comparator);
 
-    if (_min_address == NO_MIN_ADDRESS) _min_address = _blobs[0]._start;
-    if (_max_address == NO_MAX_ADDRESS) _max_address = _blobs[_count - 1]._end;
+    if (_min_address == NO_MIN_ADDRESS)
+        _min_address = _blobs[0]._start;
+    if (_max_address == NO_MAX_ADDRESS)
+        _max_address = _blobs[_count - 1]._end;
 }
 
 CodeBlob* CodeCache::findBlob(const char* name) {
@@ -149,7 +155,8 @@ const char* CodeCache::binarySearch(const void* address) {
 
     // Symbols with zero size can be valid functions: e.g. ASM entry points or kernel code.
     // Also, in some cases (endless loop) the return address may point beyond the function.
-    if (low > 0 && (_blobs[low - 1]._start == _blobs[low - 1]._end || _blobs[low - 1]._end == address)) {
+    if (low > 0 &&
+        (_blobs[low - 1]._start == _blobs[low - 1]._end || _blobs[low - 1]._end == address)) {
         return _blobs[low - 1]._name;
     }
     return _name;
@@ -263,16 +270,20 @@ bool CodeCache::makeImportsPatchable() {
     for (int i = 0; i < NUM_IMPORTS; i++) {
         for (int j = 0; j < NUM_IMPORT_TYPES; j++) {
             void** entry = _imports[i][j];
-            if (entry == NULL) continue;
-            if (entry < min_import) min_import = entry;
-            if (entry > max_import) max_import = entry;
+            if (entry == NULL)
+                continue;
+            if (entry < min_import)
+                min_import = entry;
+            if (entry > max_import)
+                max_import = entry;
         }
     }
 
     if (max_import != NULL) {
         uintptr_t patch_start = (uintptr_t)min_import & ~OS::page_mask;
         uintptr_t patch_end = (uintptr_t)max_import & ~OS::page_mask;
-        if (OS::mprotect((void*)patch_start, patch_end - patch_start + OS::page_size, PROT_READ | PROT_WRITE) != 0) {
+        if (OS::mprotect((void*)patch_start, patch_end - patch_start + OS::page_size,
+                         PROT_READ | PROT_WRITE) != 0) {
             // Could not patch library
             return false;
         }
@@ -321,3 +332,5 @@ size_t CodeCache::usedMemory() {
     }
     return bytes;
 }
+
+}  // namespace jvmtool

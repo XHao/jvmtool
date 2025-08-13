@@ -1,12 +1,13 @@
 #pragma once
 
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
 #include <memory>
 #include <string>
 
 #include "message.h"
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <unistd.h>
 
 namespace jvmtool {
 

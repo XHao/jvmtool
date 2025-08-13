@@ -5,20 +5,21 @@
 
 #ifdef __aarch64__
 
-#include <errno.h>
-#include <string.h>
-#include <sys/syscall.h>
-#include "stackFrame.h"
-#include "safeAccess.h"
-#include "vmStructs.h"
+    #include <errno.h>
+    #include <string.h>
+    #include <sys/syscall.h>
 
+    #include "safeAccess.h"
+    #include "stackFrame.h"
+    #include "vmStructs.h"
 
-#ifdef __APPLE__
-#  define REG(l, m)  _ucontext->uc_mcontext->__ss.__##m
-#else
-#  define REG(l, m)  _ucontext->uc_mcontext.l
-#endif
+namespace jvmtool {
 
+    #ifdef __APPLE__
+        #define REG(l, m) _ucontext->uc_mcontext->__ss.__##m
+    #else
+        #define REG(l, m) _ucontext->uc_mcontext.l
+    #endif
 
 uintptr_t& StackFrame::pc() {
     return (uintptr_t&)REG(pc, pc);
@@ -87,9 +88,9 @@ static inline bool isFixedSizeFrame(const char* name) {
         case 'm':
             return strncmp(name, "md5_implCompress", 16) == 0;
         case 's':
-            return strncmp(name, "sha256_implCompress", 19) == 0
-                || strncmp(name, "string_indexof_linear_", 22) == 0
-                || strncmp(name, "slow_subtype_check", 18) == 0;
+            return strncmp(name, "sha256_implCompress", 19) == 0 ||
+                   strncmp(name, "string_indexof_linear_", 22) == 0 ||
+                   strncmp(name, "slow_subtype_check", 18) == 0;
         default:
             return false;
     }
@@ -106,11 +107,9 @@ static inline bool isZeroSizeFrame(const char* name) {
         case 'a':
             return strncmp(name, "atomic", 6) == 0;
         case 'b':
-            return strncmp(name, "bigInteger", 10) == 0
-                || strcmp(name, "base64_encodeBlock") == 0;
+            return strncmp(name, "bigInteger", 10) == 0 || strcmp(name, "base64_encodeBlock") == 0;
         case 'c':
-            return strncmp(name, "copy_", 5) == 0
-                || strncmp(name, "compare_long_string_", 20) == 0;
+            return strncmp(name, "copy_", 5) == 0 || strncmp(name, "compare_long_string_", 20) == 0;
         case 'e':
             return strcmp(name, "encodeBlock") == 0;
         case 'f':
@@ -122,15 +121,15 @@ static inline bool isZeroSizeFrame(const char* name) {
         case 'i':
             return strncmp(name, "itable", 6) == 0;
         case 'l':
-            return strcmp(name, "large_byte_array_inflate") == 0
-                || strncmp(name, "lookup_secondary_supers_", 24) == 0;
+            return strcmp(name, "large_byte_array_inflate") == 0 ||
+                   strncmp(name, "lookup_secondary_supers_", 24) == 0;
         case 'm':
             return strncmp(name, "md5_implCompress", 16) == 0;
         case 's':
-            return strncmp(name, "sha1_implCompress", 17) == 0
-                || strncmp(name, "compare_long_string_same_encoding", 33) == 0
-                || strcmp(name, "compare_long_string_LL") == 0
-                || strcmp(name, "compare_long_string_UU") == 0;
+            return strncmp(name, "sha1_implCompress", 17) == 0 ||
+                   strncmp(name, "compare_long_string_same_encoding", 33) == 0 ||
+                   strcmp(name, "compare_long_string_LL") == 0 ||
+                   strcmp(name, "compare_long_string_UU") == 0;
         case 'u':
             return strcmp(name, "updateBytesAdler32") == 0;
         case 'v':
@@ -142,7 +141,8 @@ static inline bool isZeroSizeFrame(const char* name) {
     }
 }
 
-bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp) {
+bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp,
+                            uintptr_t& fp) {
     instruction_t* ip = (instruction_t*)pc;
     if (ip == entry || *ip == 0xd65f03c0) {
         pc = link();
@@ -172,10 +172,10 @@ bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& p
         // Should be done after isSTP check, since frame size may vary between JVM versions
         pc = link();
         return true;
-    } else if (strcmp(name, "forward_copy_longs") == 0
-            || strcmp(name, "backward_copy_longs") == 0
-            // There is a typo in JDK 8
-            || strcmp(name, "foward_copy_longs") == 0) {
+    } else if (strcmp(name, "forward_copy_longs") == 0 ||
+               strcmp(name, "backward_copy_longs") == 0
+               // There is a typo in JDK 8
+               || strcmp(name, "foward_copy_longs") == 0) {
         // These are called from arraycopy stub that maintains the regular frame link
         if (&pc == &this->pc() && withinCurrentStack(fp)) {
             // Unwind both stub frames for AsyncGetCallTrace
@@ -257,7 +257,7 @@ bool StackFrame::skipFaultInstruction() {
 }
 
 bool StackFrame::checkInterruptedSyscall() {
-#ifdef __APPLE__
+    #ifdef __APPLE__
     // We are not interested in syscalls that do not check error code, e.g. semaphore_wait_trap
     if (*(instruction_t*)pc() == 0xd65f03c0) {
         return true;
@@ -268,14 +268,15 @@ bool StackFrame::checkInterruptedSyscall() {
     } else {
         return retval() == (uintptr_t)-EINTR;
     }
-#else
+    #else
     if (retval() == (uintptr_t)-EINTR) {
         // Workaround for JDK-8237858: restart the interrupted poll / epoll_wait manually
         uintptr_t nr = (uintptr_t)REG(regs[8], x[8]);
         if (nr == SYS_ppoll || (nr == SYS_epoll_pwait && (int)arg3() == -1)) {
             // Check against unreadable page for the loop below
             const uintptr_t max_distance = 24;
-            if ((pc() & 0xfff) < max_distance && SafeAccess::load32((int32_t*)(pc() - max_distance)) == 0) {
+            if ((pc() & 0xfff) < max_distance &&
+                SafeAccess::load32((int32_t*)(pc() - max_distance)) == 0) {
                 return true;
             }
             // Try to restore the original value of x0 saved in another register
@@ -293,7 +294,7 @@ bool StackFrame::checkInterruptedSyscall() {
         return true;
     }
     return false;
-#endif
+    #endif
 }
 
 bool StackFrame::isSyscall(instruction_t* pc) {
@@ -301,4 +302,6 @@ bool StackFrame::isSyscall(instruction_t* pc) {
     return (*pc & 0xffffefff) == 0xd4000001;
 }
 
-#endif // __aarch64__
+}  // namespace jvmtool
+
+#endif  // __aarch64__

@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+namespace jvmtool {
+
 class StackFrame;
 
 class SafeAccess {
@@ -18,4 +20,6 @@ class SafeAccess {
     static bool checkFault(StackFrame& frame);
 };
 
-#endif // _SAFEACCESS_H
+}  // namespace jvmtool
+
+#endif  // _SAFEACCESS_H

@@ -8,8 +8,10 @@
 
 #include <stdint.h>
 #include <ucontext.h>
+
 #include "arch.h"
 
+namespace jvmtool {
 
 class NMethod;
 
@@ -64,7 +66,8 @@ class StackFrame {
         return unwindCompiled(nm, pc(), sp(), fp());
     }
 
-    bool unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp);
+    bool unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp,
+                    uintptr_t& fp);
     bool unwindCompiled(NMethod* nm, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp);
     bool unwindAtomicStub(const void*& pc);
 
@@ -78,4 +81,6 @@ class StackFrame {
     static bool isSyscall(instruction_t* pc);
 };
 
-#endif // _STACKFRAME_H
+}  // namespace jvmtool
+
+#endif  // _STACKFRAME_H

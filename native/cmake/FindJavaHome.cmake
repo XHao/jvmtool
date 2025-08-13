@@ -61,15 +61,6 @@ else()
             "/usr/java/default"
             "/usr/local/java"
         )
-    elseif(WIN32)
-        # Common JDK installation paths on Windows
-        set(JAVA_HOME_CANDIDATES
-            "C:/Program Files/Java/jdk*"
-            "C:/Program Files/OpenJDK/jdk*"
-            "C:/Program Files (x86)/Java/jdk*"
-            "C:/Program Files/Eclipse Adoptium/jdk*"
-            "C:/Java/jdk*"
-        )
     endif()
     
     # Search candidate paths
@@ -112,13 +103,9 @@ if(JAVA_HOME)
     endif()
     
     # Check java executable
-    if(WIN32)
-        set(JAVA_EXECUTABLE "${JAVA_HOME}/bin/java.exe")
-        set(JAVAC_EXECUTABLE "${JAVA_HOME}/bin/javac.exe")
-    else()
-        set(JAVA_EXECUTABLE "${JAVA_HOME}/bin/java")
-        set(JAVAC_EXECUTABLE "${JAVA_HOME}/bin/javac")
-    endif()
+    
+    set(JAVA_EXECUTABLE "${JAVA_HOME}/bin/java")
+    set(JAVAC_EXECUTABLE "${JAVA_HOME}/bin/javac")
     
     if(NOT EXISTS "${JAVA_EXECUTABLE}")
         message(WARNING "Java executable not found: ${JAVA_EXECUTABLE}")
@@ -183,12 +170,6 @@ if(NOT JAVA_HOME_FOUND)
         message(STATUS "")
         message(STATUS "Fedora:")
         message(STATUS "  sudo dnf install java-11-openjdk-devel")
-    elseif(WIN32)
-        message(STATUS "Windows:")
-        message(STATUS "  Download from Oracle: https://www.oracle.com/java/technologies/downloads/")
-        message(STATUS "  Or use package managers:")
-        message(STATUS "  choco install openjdk")
-        message(STATUS "  scoop install openjdk")
     endif()
     
     message(STATUS "")

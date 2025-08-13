@@ -8,11 +8,9 @@
 #include "writer.h"
 #include "message.h"
 
-#ifndef _WIN32
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
-#endif
 
 namespace jvmtool {
 
@@ -155,7 +153,6 @@ TEST_F(MessageWriterTest, FileWriterMultipleMessages) {
     }
 }
 
-#ifndef _WIN32
 TEST_F(MessageWriterTest, UnixSocketWriterBasicFunctionality) {
     MessageWriter writer;
 
@@ -208,7 +205,6 @@ TEST_F(MessageWriterTest, UnixSocketWriterBasicFunctionality) {
     auto expected_data = msg.serialize();
     EXPECT_EQ(received_data, expected_data);
 }
-#endif
 
 TEST_F(MessageWriterTest, ErrorHandling) {
     MessageWriter writer;

@@ -10,6 +10,8 @@
 extern "C" {
 #endif
 
+namespace jvmtool {
+
 // Magic signature for identification
 #define JVMTOOL_MAGIC "JVMTOOLLOOTMVJ"
 
@@ -21,6 +23,8 @@ struct jvmtool_metadata {
 
 // Declare the global metadata instance
 extern const struct jvmtool_metadata jvmtool_build_info;
+
+}  // namespace jvmtool
 
 #ifdef __cplusplus
 }

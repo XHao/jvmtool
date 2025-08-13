@@ -21,7 +21,7 @@ inline constexpr ContentType DATA = 2;
 
 // Message header (fixed size for easy parsing)
 #if defined(_MSC_VER)
-#pragma pack(push, 1)
+    #pragma pack(push, 1)
 #endif
 struct MessageHeader {
     uint8_t version;           // Protocol version
@@ -38,7 +38,7 @@ struct MessageHeader {
 }
 #if defined(_MSC_VER)
 ;
-#pragma pack(pop)
+    #pragma pack(pop)
 #elif defined(__GNUC__)
 __attribute__((packed));
 #else

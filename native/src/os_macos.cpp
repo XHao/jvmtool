@@ -5,26 +5,27 @@
 
 #ifdef __APPLE__
 
-#include <dlfcn.h>
-#include <libkern/OSByteOrder.h>
-#include <libproc.h>
-#include <mach/mach.h>
-#include <mach/mach_host.h>
-#include <mach/mach_time.h>
-#include <mach/processor_info.h>
-#include <mach/vm_map.h>
-#include <mach-o/dyld.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/sysctl.h>
-#include <sys/time.h>
-#include <sys/times.h>
-#include <time.h>
-#include <unistd.h>
-#include "os.h"
+    #include "os.h"
 
+    #include <dlfcn.h>
+    #include <libkern/OSByteOrder.h>
+    #include <libproc.h>
+    #include <mach-o/dyld.h>
+    #include <mach/mach.h>
+    #include <mach/mach_host.h>
+    #include <mach/mach_time.h>
+    #include <mach/processor_info.h>
+    #include <mach/vm_map.h>
+    #include <pthread.h>
+    #include <stdlib.h>
+    #include <sys/mman.h>
+    #include <sys/sysctl.h>
+    #include <sys/time.h>
+    #include <sys/times.h>
+    #include <time.h>
+    #include <unistd.h>
 
+namespace jvmtool {
 class MacThreadList : public ThreadList {
   private:
     task_t _task;
@@ -62,39 +63,43 @@ class MacThreadList : public ThreadList {
     }
 };
 
-
 JitWriteProtection::JitWriteProtection(bool enable) {
-#ifdef __aarch64__
+    #ifdef __aarch64__
     // Mimic pthread_jit_write_protect_np(), but save the previous state
     if (*(volatile char*)0xfffffc10c) {
         u64 val = enable ? *(volatile u64*)0xfffffc118 : *(volatile u64*)0xfffffc110;
         u64 prev;
-        asm volatile("mrs %0, s3_6_c15_c1_5" : "=r" (prev) : : );
+        asm volatile("mrs %0, s3_6_c15_c1_5" : "=r"(prev) : :);
         if (prev != val) {
             _prev = prev;
             _restore = true;
-            asm volatile("msr s3_6_c15_c1_5, %0\n"
-                         "isb"
-                         : "+r" (val) : : "memory");
+            asm volatile(
+                "msr s3_6_c15_c1_5, %0\n"
+                "isb"
+                : "+r"(val)
+                :
+                : "memory");
             return;
         }
     }
     // Already in the required mode, or write protection is not supported
     _restore = false;
-#endif
+    #endif
 }
 
 JitWriteProtection::~JitWriteProtection() {
-#ifdef __aarch64__
+    #ifdef __aarch64__
     if (_restore) {
         u64 prev = _prev;
-        asm volatile("msr s3_6_c15_c1_5, %0\n"
-                     "isb"
-                     : "+r" (prev) : : "memory");
+        asm volatile(
+            "msr s3_6_c15_c1_5, %0\n"
+            "isb"
+            : "+r"(prev)
+            :
+            : "memory");
     }
-#endif
+    #endif
 }
-
 
 static SigAction installed_sigaction[32];
 static SigAction orig_sigbus_handler;
@@ -186,7 +191,8 @@ ThreadState OS::threadState(int thread_id) {
 }
 
 u64 OS::threadCpuTime(int thread_id) {
-    if (thread_id == 0) thread_id = threadId();
+    if (thread_id == 0)
+        thread_id = threadId();
 
     struct thread_basic_info info;
     mach_msg_type_number_t size = sizeof(info);
@@ -269,8 +275,10 @@ int OS::getProfilingSignal(int mode) {
 
     do {
         struct sigaction sa;
-        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo && sigaction(signo, NULL, &sa) == 0) {
-            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN || sa.sa_sigaction == installed_sigaction[signo]) {
+        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo &&
+            sigaction(signo, NULL, &sa) == 0) {
+            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN ||
+                sa.sa_sigaction == installed_sigaction[signo]) {
                 return signo;
             }
         }
@@ -280,23 +288,20 @@ int OS::getProfilingSignal(int mode) {
 }
 
 bool OS::sendSignalToThread(int thread_id, int signo) {
-#ifdef __aarch64__
+    #ifdef __aarch64__
     register long x0 asm("x0") = thread_id;
     register long x1 asm("x1") = signo;
     register long x16 asm("x16") = 328;
-    asm volatile("svc #0x80"
-                 : "+r" (x0)
-                 : "r" (x1), "r" (x16)
-                 : "memory");
+    asm volatile("svc #0x80" : "+r"(x0) : "r"(x1), "r"(x16) : "memory");
     return x0 == 0;
-#else
+    #else
     int result;
     asm volatile("syscall"
-                 : "=a" (result)
-                 : "a" (0x2000148), "D" (thread_id), "S" (signo)
+                 : "=a"(result)
+                 : "a"(0x2000148), "D"(thread_id), "S"(signo)
                  : "rcx", "r11", "memory");
     return result == 0;
-#endif
+    #endif
 }
 
 void* OS::safeAlloc(size_t size) {
@@ -337,7 +342,8 @@ u64 OS::getTotalCpuTime(u64* utime, u64* stime) {
     mach_msg_type_number_t cpu_info_count;
 
     host_name_port_t host = mach_host_self();
-    kern_return_t ret = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpu_count, &cpu_info_array, &cpu_info_count);
+    kern_return_t ret = host_processor_info(host, PROCESSOR_CPU_LOAD_INFO, &cpu_count,
+                                            &cpu_info_array, &cpu_info_count);
     mach_port_deallocate(mach_task_self(), host);
     if (ret != 0) {
         return (u64)-1;
@@ -387,7 +393,8 @@ void OS::freePageCache(int fd, off_t start_offset) {
 }
 
 int OS::mprotect(void* addr, size_t size, int prot) {
-    if (prot & PROT_WRITE) prot |= VM_PROT_COPY;
+    if (prot & PROT_WRITE)
+        prot |= VM_PROT_COPY;
     return vm_protect(mach_task_self(), (vm_address_t)addr, size, 0, prot);
 }
 
@@ -426,4 +433,6 @@ bool OS::checkPreloaded() {
     return false;
 }
 
-#endif // __APPLE__
+}  // namespace jvmtool
+
+#endif  // __APPLE__

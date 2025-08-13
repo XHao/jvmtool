@@ -9,6 +9,7 @@
 // Global metadata instance with build-time values
 // This will be embedded in the compiled library
 extern "C" {
+namespace jvmtool {
 #if defined(__APPLE__)
 __attribute__((section("__DATA,__jvmtool")))
 #else
@@ -21,4 +22,6 @@ const struct jvmtool_metadata jvmtool_build_info = {JVMTOOL_MAGIC,
                                                     0
 #endif
 };
+
+}  // namespace jvmtool
 }

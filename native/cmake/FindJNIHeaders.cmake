@@ -10,17 +10,9 @@
 
 include(CMakePrintHelpers)
 
-# On Windows, skip CMake's built-in FindJNI to avoid path parsing issues
-# and go straight to manual detection
-if(WIN32)
-    message(STATUS "Windows detected: Skipping CMake's find_package(JNI) to avoid path issues")
-    set(JNI_FOUND FALSE)
-    set(SKIP_BUILTIN_JNI TRUE)
-else()
-    # First try using CMake's built-in FindJNI on non-Windows platforms
-    find_package(JNI QUIET)
-    set(SKIP_BUILTIN_JNI FALSE)
-endif()
+# First try using CMake's built-in FindJNI on non-Windows platforms
+find_package(JNI QUIET)
+set(SKIP_BUILTIN_JNI FALSE)
 
 if(JNI_FOUND AND NOT SKIP_BUILTIN_JNI)
     message(STATUS "✅ JNI found by CMake's find_package")
@@ -33,12 +25,6 @@ else()
         message(FATAL_ERROR "JAVA_HOME must be set before searching for JNI. Please run FindJavaHome first.")
     endif()
     
-    # Normalize JAVA_HOME path on Windows to avoid backslash issues
-    if(WIN32)
-        file(TO_CMAKE_PATH "${JAVA_HOME}" JAVA_HOME_NORMALIZED)
-        set(JAVA_HOME "${JAVA_HOME_NORMALIZED}")
-        message(STATUS "Normalized JAVA_HOME: ${JAVA_HOME}")
-    endif()
     
     # Manual JNI search
     set(JNI_FOUND FALSE)
@@ -65,14 +51,6 @@ else()
             "${JAVA_HOME}/lib/x86_64/server"
             "${JAVA_HOME}/jre/lib/amd64/server"
             "${JAVA_HOME}/jre/lib/x86_64/server"
-        )
-    elseif(WIN32)
-        set(JNI_PLATFORM_INCLUDE "win32")
-        set(JVM_LIB_NAMES "jvm.lib" "jvm.dll")
-        set(JVM_LIB_PATHS
-            "${JAVA_HOME}/lib"
-            "${JAVA_HOME}/bin/server"
-            "${JAVA_HOME}/jre/bin/server"
         )
     endif()
     

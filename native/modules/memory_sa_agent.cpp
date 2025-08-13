@@ -1,8 +1,8 @@
 #include <fcntl.h>   // for open()
 #include <unistd.h>  // for getpid()
-#include <cerrno>  // for errno (modernize-deprecated-headers)
 
 #include <atomic>
+#include <cerrno>  // for errno (modernize-deprecated-headers)
 #include <chrono>
 #include <fstream>
 #include <iomanip>
