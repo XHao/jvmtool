@@ -60,42 +60,59 @@ bool MessageWriter::initialize(const std::string& path) {
     return true;
 }
 
-bool MessageWriter::writeMessage(const Message& message) {
+int MessageWriter::waitForClient() {
+    if (!isReady()) {
+        last_error_ = "Writer not initialized";
+        return -1;
+    }
+
+    // Accept new client connection
+    int fd = accept(socket_fd_, nullptr, nullptr);
+    if (fd == -1) {
+        last_error_ = "Failed to accept connection: " + std::string(strerror(errno));
+        return -1;
+    }
+
+    return fd;
+}
+
+void MessageWriter::disconnectClient(int fd) {
+    if (fd != -1) {
+        ::close(fd);
+    }
+}
+
+bool MessageWriter::writeMessage(int fd, const Message& message) {
     if (!isReady()) {
         last_error_ = "Writer not initialized";
         return false;
     }
 
+    if (fd == -1) {
+        last_error_ = "No client connected";
+        return false;
+    }
+
     auto serialized = message.serialize();
 
-    // Unix Socket write
-    int client_fd = accept(socket_fd_, nullptr, nullptr);
-    if (client_fd == -1) {
-        last_error_ = "Failed to accept connection: " + std::string(strerror(errno));
+    ssize_t bytes_written = write(fd, serialized.data(), serialized.size());
+
+    if (bytes_written == -1) {
+        // Connection might be broken, disconnect client
+        last_error_ = "Failed to write to client: " + std::string(strerror(errno));
         return false;
     }
-
-    ssize_t bytes_written = write(client_fd, serialized.data(), serialized.size());
-    ::close(client_fd);
 
     if (bytes_written != static_cast<ssize_t>(serialized.size())) {
-        last_error_ = "Failed to write complete message: " + std::string(strerror(errno));
+        last_error_ = "Failed to write complete message";
         return false;
     }
 
-    return true;
-}
-
-bool MessageWriter::flush() {
-    if (!isReady()) {
-        return false;
-    }
-
-    // Unix sockets don't need explicit flushing
     return true;
 }
 
 void MessageWriter::close() {
+    // Close server socket
     if (socket_fd_ != -1) {
         ::close(socket_fd_);
         socket_fd_ = -1;

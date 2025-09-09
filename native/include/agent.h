@@ -19,16 +19,26 @@ struct JvmtiErrorInfo {
     constexpr JvmtiErrorInfo(const char* n, const char* d) : name(n), description(d) {}
 };
 
+/**
+ * Module state enumeration - common to all agent modules
+ */
+enum class ModuleState {
+    IDLE,      // Module is idle, ready for new analysis
+    ANALYZING  // Module is currently performing analysis
+};
+
 class AgentModule {
   public:
-    virtual ~AgentModule() = default;
+    virtual ~AgentModule();
 
     virtual jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti);
     [[nodiscard]] bool isInitialized() const;
 
-    virtual jint onAttach(const char* options) = 0;
+    virtual jint onAttach(std::unordered_map<std::string, std::string>&) = 0;
 
-    [[nodiscard]] virtual const char* getName() const = 0;
+    virtual const char* getName() const = 0;
+
+    virtual AgentType agentType() const = 0;
 
     AgentModule(const AgentModule&) = delete;
     AgentModule& operator=(const AgentModule&) = delete;
@@ -41,6 +51,14 @@ class AgentModule {
     jvmtiEnv* jvmti_ = nullptr;
     JavaVM* vm_ = nullptr;
     jrawMonitorID module_monitor_ = nullptr;
+
+    std::unique_ptr<MessageWriter> writer_ = nullptr;
+    ModuleState state_ = ModuleState::IDLE;
+
+    void reset() {
+        MonitorLock(this);
+        state_ = ModuleState::IDLE;
+    }
 
     // RAII-style monitor lock helper
     class MonitorLock {
@@ -67,14 +85,18 @@ class AgentManager {
     static AgentManager& instance();
     void registerModule(AgentModule* module);
     jint onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
+    void cleanup();
 
   private:
     std::unordered_map<std::string, AgentModule*> modules_;
     std::mutex modules_mutex_;
     bool inited_{false};
 
+    std::unordered_map<std::string, std::string> parseOptions(const char* options);
+    void initializeMetaspaceStructs(JavaVM* java_vm);
+
     AgentManager() = default;
-    ~AgentManager() = default;
+    ~AgentManager();
 
   public:
     AgentManager(const AgentManager&) = delete;

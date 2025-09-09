@@ -31,3 +31,4 @@ go.work.sum
 build/
 dist
 .build_info_cache
+jdk

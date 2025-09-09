@@ -52,19 +52,19 @@ func (opt *JpsOption) JpsValidate() error {
 // @see sun.jvmstat.perfdata.monitor.protocol.local.LocalVmManager.activeVms()
 func JpsList(option JpsOption) int {
 	if err := option.JpsValidate(); err != nil {
-		log(err.Error())
+		pkg.Log(err.Error())
 		return 1
 	}
 
 	pids, err := pkg.DiscoverJavaProcesses(option.User)
 	if err != nil {
-		log(fmt.Sprintf("failed to discover java processes: %v", err))
+		pkg.Log(fmt.Sprintf("failed to discover java processes: %v", err))
 		return 1
 	}
 
 	if len(pids) == 0 {
 		if !option.Quiet {
-			log("no java processes found for user: " + option.User)
+			pkg.Log("no java processes found for user: " + option.User)
 		}
 		return 0
 	}
@@ -77,8 +77,8 @@ func JpsList(option JpsOption) int {
 }
 
 // collectProcessInfo collects detailed information for the given PIDs
-func collectProcessInfo(pids []int32, option JpsOption) []JvmProcess {
-	var processes []JvmProcess
+func collectProcessInfo(pids []int32, option JpsOption) []pkg.JvmProcess {
+	var processes []pkg.JvmProcess
 	for _, pid := range pids {
 		p, err := process.NewProcess(pid)
 		if err != nil {
@@ -90,21 +90,21 @@ func collectProcessInfo(pids []int32, option JpsOption) []JvmProcess {
 		}
 		cmd := strings.Join(cmdSlice, " ")
 		mainClassOrJar, vmArgs, mainArgs := analyzeVmCmd(cmdSlice, option)
-		processes = append(processes, JvmProcess{
+		processes = append(processes, pkg.JvmProcess{
 			Pid:            p.Pid,
 			Cmd:            cmd,
-			mainClassOrJar: mainClassOrJar,
-			vmArgs:         vmArgs,
-			mainArgs:       mainArgs,
+			MainClassOrJar: mainClassOrJar,
+			VmArgs:         vmArgs,
+			MainArgs:       mainArgs,
 		})
 	}
 	return processes
 }
 
 // printJps prints the information of a Java process according to the JpsOption.
-func printJps(process JvmProcess, option JpsOption) {
+func printJps(process pkg.JvmProcess, option JpsOption) {
 	if option.Quiet {
-		log(fmt.Sprintf("%d", process.Pid))
+		pkg.Log(fmt.Sprintf("%d", process.Pid))
 		return
 	}
 
@@ -114,18 +114,18 @@ func printJps(process JvmProcess, option JpsOption) {
 	if option.ShowLong {
 		parts = append(parts, process.Cmd)
 	} else {
-		parts = append(parts, process.mainClassOrJar)
+		parts = append(parts, process.MainClassOrJar)
 	}
 
-	if option.ShowVMArgs && process.vmArgs != "" {
-		parts = append(parts, strings.TrimSpace(process.vmArgs))
+	if option.ShowVMArgs && process.VmArgs != "" {
+		parts = append(parts, strings.TrimSpace(process.VmArgs))
 	}
 
-	if option.ShowArgs && process.mainArgs != "" {
-		parts = append(parts, process.mainArgs)
+	if option.ShowArgs && process.MainArgs != "" {
+		parts = append(parts, process.MainArgs)
 	}
 
-	log(strings.Join(parts, " "))
+	pkg.Log(strings.Join(parts, " "))
 }
 
 func analyzeVmCmd(cmdSlice []string, option JpsOption) (mainClassOrJar string, vmArgs string, mainArgs string) {

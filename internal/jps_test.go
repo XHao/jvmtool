@@ -12,14 +12,14 @@ import (
 	"github.com/XHao/jvmtool/pkg"
 )
 
-// captureLogs sets up a logger that captures log output into a slice and returns a function to retrieve the logs.
+// captureLogs sets up a pkg.Logger that captures pkg.Log output into a slice and returns a function to retrieve the pkg.Logs.
 func captureLogs() (restore func(), getLogs func() []string, clearLogs func()) {
-	origLogger := globalLogger
+	origLogger := pkg.GlobalLogger
 	var logs []string
-	logInit(func(msg string) {
+	pkg.LogInit(func(msg string) {
 		logs = append(logs, msg)
 	})
-	return func() { globalLogger = origLogger }, func() []string { return logs }, func() { logs = nil }
+	return func() { pkg.GlobalLogger = origLogger }, func() []string { return logs }, func() { logs = nil }
 }
 
 // prepareHsperfdataFile creates a fake hsperfdata file for the given user and pid, returning the file path and a cleanup function.
@@ -72,7 +72,7 @@ func TestJpsList_ValidUser(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("expected to find at least one java process, got logs: %v", getLogs())
+		t.Errorf("expected to find at least one java process, got pkg.Logs: %v", getLogs())
 	}
 }
 
@@ -92,7 +92,7 @@ func TestJpsList_InvalidUser(t *testing.T) {
 		}
 	}
 	if !userErr {
-		t.Errorf("expected 'user does not exist' error, got logs: %v", getLogs())
+		t.Errorf("expected 'user does not exist' error, got pkg.Logs: %v", getLogs())
 	}
 }
 
@@ -125,7 +125,7 @@ func TestJpsList_NoJavaProcess(t *testing.T) {
 		}
 	}
 	if !noProc {
-		t.Errorf("expected 'no java processes found' log, got logs: %v", getLogs())
+		t.Errorf("expected 'no java processes found' pkg.Log, got pkg.Logs: %v", getLogs())
 	}
 }
 
@@ -139,7 +139,7 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 		t.Fatalf("failed to get current user: %v", err)
 	}
 
-	p, cleanup, err := startJavaProcess()
+	p, cleanup, err := pkg.StartJavaProcess()
 	if err != nil {
 		t.Skip("failed to start java process:", err)
 	}
@@ -158,12 +158,12 @@ func TestJpsList_ActualJavaProcess(t *testing.T) {
 	JpsList(opt)
 	found := false
 	for _, l := range getLogs() {
-		if strings.Contains(l, p.class) {
+		if strings.Contains(l, p.Class) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected to find %s in logs, got: %v", p.class, getLogs())
+		t.Errorf("expected to find %s in pkg.Logs, got: %v", p.Class, getLogs())
 	}
 }

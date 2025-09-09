@@ -34,22 +34,16 @@ dirs:
 	@mkdir -p $(NATIVE_BUILD_DIR)
 
 # Build both Go binary and native agent
-build: dirs build-go build-native clean-build-info
-
-# Generate build-time information for both Go and native code  
-generate-build-info:
-	@echo "Generating build information..."
-	@./scripts/generate_build_info.sh all > /dev/null
+build: dirs build-go build-native 
 
 # Build Go binary (with build info injection)
-build-go: dirs generate-build-info
+build-go: dirs
 	@echo "Building Go binary..."
-	@USE_CACHED_BUILD_INFO=1 ./scripts/generate_build_info.sh go >/dev/null
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 	cp $(BUILD_DIR)/$(BINARY_NAME) $(DIST_DIR)/bin/
 
 # Build native agent library
-build-native: dirs generate-build-info
+build-native: dirs
 	@echo "Building native agent library..."
 	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
@@ -63,7 +57,7 @@ build-native: dirs generate-build-info
 	fi
 
 # Build native agent library with tests
-build-native-with-tests: dirs generate-build-info
+build-native-with-tests: dirs
 	@echo "Building native agent library with tests..."
 	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent jvmtool-agent-test
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
@@ -75,11 +69,6 @@ build-native-with-tests: dirs generate-build-info
 	else \
 		echo "Warning: Native agent library not found after build"; \
 	fi
-
-# Clean build information and restore security placeholders
-clean-build-info:
-	@echo "Cleaning build information and restoring security placeholders..."
-	@./scripts/generate_build_info.sh clean
 
 test: dirs
 	@echo "Running Go tests..."
@@ -235,6 +224,4 @@ help:
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(NATIVE_BUILD_DIR)
-	@./scripts/generate_build_info.sh clean 2>/dev/null || true
-	@./scripts/security_check.sh 2>/dev/null || true
 	go clean

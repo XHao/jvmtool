@@ -54,8 +54,7 @@ func TestGetCurrentUser(t *testing.T) {
 	}
 	if user == nil {
 		t.Errorf("GetCurrentUser() returned nil user")
-	}
-	if user.Username == "" {
+	} else if user.Username == "" {
 		t.Errorf("GetCurrentUser() returned user with empty username")
 	}
 }

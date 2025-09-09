@@ -22,60 +22,18 @@ endif()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${JNI_INCLUDE_DIRS})
 
-# Generate build-time information securely
-execute_process(
-    COMMAND env USE_CACHED_BUILD_INFO=1 ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_build_info.sh cmake
-    OUTPUT_VARIABLE BUILD_INFO_CMAKE
-    ERROR_VARIABLE BUILD_INFO_ERROR
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
-    RESULT_VARIABLE BUILD_INFO_RESULT
-)
-
-# Check if build info generation was successful
-if(NOT BUILD_INFO_RESULT EQUAL 0)
-    message(FATAL_ERROR "Failed to generate build info: ${BUILD_INFO_ERROR}")
-endif()
-
-# Parse the build info and execute the set commands
-string(REPLACE "\n" ";" BUILD_INFO_LINES ${BUILD_INFO_CMAKE})
-foreach(line ${BUILD_INFO_LINES})
-    # Remove any extra whitespace and check if line matches set(...) pattern
-    string(STRIP "${line}" clean_line)
-    if(clean_line MATCHES "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$")
-        # Extract variable name and value
-        string(REGEX REPLACE "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$" "\\1" VAR_NAME "${clean_line}")
-        string(REGEX REPLACE "^set\\(([A-Za-z_][A-Za-z0-9_]*) (.+)\\)$" "\\2" VAR_VALUE "${clean_line}")
-        # Remove quotes from the value if present
-        string(REGEX REPLACE "^\"(.*)\"$" "\\1" VAR_VALUE "${VAR_VALUE}")
-        set(${VAR_NAME} "${VAR_VALUE}")
-        # Only show checksum confirmation in build output for security
-        if(VAR_NAME STREQUAL "JVMTOOL_CHECKSUM")
-            message(STATUS "Build info: Checksum generated successfully")
-        endif()
-    endif()
-endforeach()
-
-# Verify that required checksum is available
-if(NOT DEFINED JVMTOOL_CHECKSUM)
-    message(FATAL_ERROR "JVMTOOL_CHECKSUM not defined in build info")
-endif()
-
-file(GLOB AGENT_HEADERS
+file(GLOB_RECURSE AGENT_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/**/*.h"
 )
-file(GLOB AGENT_SOURCES
+file(GLOB_RECURSE AGENT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-)
-
-file(GLOB MODULES_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/modules/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/**/*.cpp"
 )
 
 add_library(jvmtool-agent SHARED 
     ${AGENT_HEADERS} 
     ${AGENT_SOURCES}
-    ${MODULES_SOURCES}
 )
 
 # Coverage configuration
@@ -89,11 +47,6 @@ if(ENABLE_COVERAGE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
 endif()
-
-# Add compile definitions for build info
-target_compile_definitions(jvmtool-agent PRIVATE
-    JVMTOOL_CHECKSUM=${JVMTOOL_CHECKSUM}
-)
 
 set_target_properties(jvmtool-agent PROPERTIES
     OUTPUT_NAME "jvmtool-agent"

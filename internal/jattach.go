@@ -56,19 +56,19 @@ func (opt *JattachOption) JattachValidate() error {
 // Jattach performs the attach operation to a Java process specified by the JattachOption.
 func Jattach(option JattachOption) int {
 	if err := option.JattachValidate(); err != nil {
-		log(err.Error())
+		pkg.Log(err.Error())
 		return 1
 	}
 
-	jp := &JvmProcess{
+	jp := &pkg.JvmProcess{
 		Pid: pkg.Pid(option.Pid),
 	}
 
-	if err := jp.checkSocket(); err != nil {
-		log(err.Error())
+	if err := jp.CheckSocket(); err != nil {
+		pkg.Log(err.Error())
 		return 1
-	} else if err := jp.loadAgent(option.AgentPath, option.AgentParams); err != nil {
-		log(err.Error())
+	} else if err := jp.LoadAgent(option.AgentPath, option.AgentParams); err != nil {
+		pkg.Log(err.Error())
 		return 1
 	}
 	return 0

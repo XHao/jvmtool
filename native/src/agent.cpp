@@ -1,5 +1,6 @@
 #include "agent.h"
 
+#include <dlfcn.h>
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -7,7 +8,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "vm.h"
+#include "metaspace_structs.h"
+#include "vm/codeCache.h"
+#include "vm/vm.h"
 
 namespace jvmtool {
 
@@ -87,6 +90,22 @@ void logJvmtiError(jvmtiError error, const char* context) {
               << ": " << error_description << " (" << error << ")" << std::endl;
 }
 
+AgentModule::~AgentModule() {
+    try {
+        if (writer_ && writer_->isReady()) {
+            writer_->close();
+        }
+
+        if (jvmti_ != nullptr && module_monitor_ != nullptr) {
+            jvmtiError err = jvmti_->DestroyRawMonitor(module_monitor_);
+            if (err != JVMTI_ERROR_NONE) {
+                logJvmtiError(err, "AgentModule::~AgentModule - Failed to destroy monitor");
+            }
+        }
+    } catch (...) {
+    }
+}
+
 jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
     if (java_vm == nullptr || jvmti == nullptr) {
         return JVMTI_ERROR_NULL_POINTER;
@@ -100,6 +119,70 @@ jvmtiError AgentModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
 
 bool AgentModule::isInitialized() const {
     return jvmti_ != nullptr && vm_ != nullptr && module_monitor_ != nullptr;
+}
+
+std::unordered_map<std::string, std::string> AgentManager::parseOptions(const char* options) {
+    std::unordered_map<std::string, std::string> result;
+
+    if (options == nullptr) {
+        return result;
+    }
+
+    std::string opts(options);
+    size_t pos = 0;
+
+    while (pos < opts.length()) {
+        size_t next = opts.find(',', pos);
+        if (next == std::string::npos) {
+            next = opts.length();
+        }
+
+        std::string param = opts.substr(pos, next - pos);
+        size_t eq = param.find('=');
+
+        if (eq != std::string::npos) {
+            std::string key = param.substr(0, eq);
+            std::string value = param.substr(eq + 1);
+            result[key] = value;
+        }
+
+        pos = next + 1;
+    }
+
+    int interval = 0;
+    auto it = result.find("interval");
+    if (it != result.end()) {
+        try {
+            interval = std::atoi(it->second.c_str());
+        } catch (const std::exception& e) {
+            throw std::invalid_argument("Invalid interval parameter: " + std::string(e.what()));
+        }
+        if (interval <= 0) {
+            throw std::invalid_argument("Interval must be a positive integer");
+        }
+    } else {
+        interval = 5;  // default
+    }
+
+    it = result.find("duration");
+    if (it != result.end()) {
+        int duration = 0;
+        try {
+            duration = std::atoi(it->second.c_str());
+        } catch (const std::exception& e) {
+            throw std::invalid_argument("Invalid duration parameter: " + std::string(e.what()));
+        }
+        if (duration <= 0) {
+            throw std::invalid_argument("Duration must be a positive integer");
+        }
+        if (duration < interval) {
+            throw std::invalid_argument("Duration must be greater than interval");
+        }
+    } else {
+        result["duration"] = "30";  // default
+    }
+
+    return result;
 }
 
 // AgentModule::MonitorLock implementation
@@ -130,6 +213,18 @@ AgentManager& AgentManager::instance() {
     return mgr;
 }
 
+AgentManager::~AgentManager() {
+    cleanup();
+}
+
+void AgentManager::cleanup() {
+    const std::lock_guard<std::mutex> lock(modules_mutex_);
+    for (auto& [name, module] : modules_) {
+        delete module;
+    }
+    modules_.clear();
+}
+
 void AgentManager::registerModule(AgentModule* module) {
     if (module == nullptr) {
         return;
@@ -146,12 +241,39 @@ void AgentManager::registerModule(AgentModule* module) {
     }
 }
 
+void AgentManager::initializeMetaspaceStructs(JavaVM* java_vm) {
+    try {
+        // Get libjvm library base address using dladdr
+        Dl_info info;
+        if (dladdr((void*)java_vm, &info) != 0 && info.dli_fbase != nullptr) {
+            // Create CodeCache for libjvm with estimated size
+            CodeCache* libjvm = new CodeCache("libjvm.dylib", 0, info.dli_fbase, 
+                                            (void*)((char*)info.dli_fbase + 0x10000000));
+            
+            // Initialize MetaspaceStructs with libjvm
+            MetaspaceStructs::init(libjvm);
+            
+            // Complete initialization after VM is ready
+            MetaspaceStructs::ready();
+            
+            std::cerr << "[Native SA] MetaspaceStructs initialized successfully" << std::endl;
+        } else {
+            std::cerr << "[Native SA] Failed to get libjvm base address" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[Native SA] Failed to initialize MetaspaceStructs: " << e.what() << std::endl;
+    }
+}
+
 jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
     const std::lock_guard<std::mutex> lock(modules_mutex_);
 
     if (!inited_) {
-        // Initialize VM interface first
+        // Initialize VM first
         VM::init(java_vm, jvmti);
+        
+        // Initialize MetaspaceStructs after VM initialization
+        initializeMetaspaceStructs(java_vm);
 
         for (auto it = modules_.begin(); it != modules_.end();) {
             const auto& [name, module] = *it;
@@ -168,25 +290,13 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
         inited_ = true;
     }
 
-    std::string target_module;
-
-    if (options != nullptr) {
-        std::string opts(options);
-        size_t analysis_pos = opts.find("analysis=");
-        if (analysis_pos != std::string::npos) {
-            size_t start = analysis_pos + 9;  // length of "analysis="
-            size_t end = opts.find(',', start);
-            if (end == std::string::npos) {
-                end = opts.length();
-            }
-            target_module = opts.substr(start, end - start);
-        }
-    }
+    std::unordered_map<std::string, std::string> opts = parseOptions(options);
+    std::string target_module = opts["analysis"];
 
     auto it = modules_.find(target_module);
     if (it != modules_.end() && it->second != nullptr) {
         const auto& [_, module] = *it;
-        return module->onAttach(options);
+        return module->onAttach(opts);
     }
 
     logJvmtiError(
@@ -210,8 +320,4 @@ JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* java_vm, char* options, void* /*re
         jvmtool::logJvmtiError(JVMTI_ERROR_INTERNAL, exception.what());
     }
     return JNI_ERR;
-}
-
-JNIEXPORT void JNICALL Agent_OnUnload(JavaVM* java_vm) {
-    static_cast<void>(java_vm);  // Suppress unused parameter warning
 }

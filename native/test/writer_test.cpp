@@ -72,9 +72,15 @@ TEST_F(MessageWriterTest, FileWriterBasicFunctionality) {
     std::string test_content = "Hello, World!";
     Message msg(AgentType::HEAP, DATA, test_content);
 
+    // Wait for client connection
+    int client_fd = writer.waitForClient();
+    EXPECT_NE(client_fd, -1);
+
     // Write message
-    EXPECT_TRUE(writer.writeMessage(msg));
-    EXPECT_TRUE(writer.flush());
+    EXPECT_TRUE(writer.writeMessage(client_fd, msg));
+    
+    // Disconnect client
+    writer.disconnectClient(client_fd);
 
     // Wait for client to finish
     client_thread.join();
@@ -134,10 +140,11 @@ TEST_F(MessageWriterTest, FileWriterMultipleMessages) {
     };
 
     for (const auto& msg : messages) {
-        EXPECT_TRUE(writer.writeMessage(msg));
+        int client_fd = writer.waitForClient();
+        EXPECT_NE(client_fd, -1);
+        EXPECT_TRUE(writer.writeMessage(client_fd, msg));
+        writer.disconnectClient(client_fd);
     }
-
-    EXPECT_TRUE(writer.flush());
     
     // Wait for client to finish
     client_thread.join();
@@ -192,7 +199,10 @@ TEST_F(MessageWriterTest, UnixSocketWriterBasicFunctionality) {
     std::string test_content = "Unix socket test";
     Message msg(AgentType::CLASS, DATA, test_content);
     
-    EXPECT_TRUE(writer.writeMessage(msg));
+    int client_fd = writer.waitForClient();
+    EXPECT_NE(client_fd, -1);
+    EXPECT_TRUE(writer.writeMessage(client_fd, msg));
+    writer.disconnectClient(client_fd);
 
     // Wait for client to finish
     client_thread.join();
@@ -216,7 +226,7 @@ TEST_F(MessageWriterTest, ErrorHandling) {
 
     // Should fail to write when not initialized
     Message msg(AgentType::NONE, STATUS, "test");
-    EXPECT_FALSE(writer.writeMessage(msg));
+    EXPECT_FALSE(writer.writeMessage(-1, msg));
 }
 
 TEST_F(MessageWriterTest, MessageSerialization) {
@@ -265,10 +275,11 @@ TEST_F(MessageWriterTest, MessageSerialization) {
     });
 
     for (const auto& msg : test_messages) {
-        EXPECT_TRUE(writer.writeMessage(msg));
+        int client_fd = writer.waitForClient();
+        EXPECT_NE(client_fd, -1);
+        EXPECT_TRUE(writer.writeMessage(client_fd, msg));
+        writer.disconnectClient(client_fd);
     }
-
-    writer.flush();
     
     // Wait for client to finish
     client_thread.join();

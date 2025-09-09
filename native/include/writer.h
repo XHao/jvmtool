@@ -20,9 +20,13 @@ class MessageWriter {
     // path: Unix socket path
     bool initialize(const std::string& path);
 
-    bool writeMessage(const Message& message);
+    // Wait for client connection (blocking call)
+    int waitForClient();
 
-    bool flush();
+    // Disconnect current client
+    void disconnectClient(int fd);
+
+    bool writeMessage(int fd, const Message& message);
 
     void close();
 
@@ -40,7 +44,30 @@ class MessageWriter {
     std::string last_error_;
     bool is_ready_;
 
-    int socket_fd_;
+    int socket_fd_;  // Server socket
+};
+
+class ClosableFd {
+  public:
+    ClosableFd(int fd) : fd_(fd) {};
+    ~ClosableFd() {
+        try {
+            if (fd_ != -1) {
+                ::close(fd_);
+            }
+        } catch (...) {
+        }
+    };
+
+    ClosableFd(const ClosableFd&) = delete;
+    ClosableFd& operator=(const ClosableFd&) = delete;
+
+    operator int() const noexcept {
+        return fd_;
+    }
+
+  private:
+    int fd_;
 };
 
 }  // namespace jvmtool

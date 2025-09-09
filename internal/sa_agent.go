@@ -80,22 +80,39 @@ func (opt *SAAgentOption) SAAgentValidate() error {
 // SAAgent
 func SAAgent(option SAAgentOption) int {
 	if err := option.SAAgentValidate(); err != nil {
-		log(err.Error())
+		pkg.Log(err.Error())
 		return 1
 	}
 
 	agentPath, err := findNativeAgent()
 	if err != nil {
-		log(fmt.Sprintf("Native agent not found (%v)", err))
+		pkg.Log(fmt.Sprintf("Native agent not found (%v)", err))
 		return 1
 	}
 
-	// Create communication file base path
-	tempDir := os.TempDir()
-	sessionID := fmt.Sprintf("%s_%d", option.Pid, time.Now().UnixMilli())
-	commPath := filepath.Join(tempDir, "jvmtool_"+sessionID)
+	// Map analysis to native module/task_type
+	module := ""
+	taskType := ""
+	switch option.Analysis {
+	case "memory", "all":
+		module = "memory"
+		taskType = "all"
+	case "heap":
+		module = "memory"
+		taskType = "heap"
+	case "gc":
+		module = "memory"
+		taskType = "gc"
+	case "metaspace":
+		module = "memory"
+		taskType = "metaspace"
+	default:
+		pkg.Log(fmt.Sprintf("analysis type '%s' is not supported yet", option.Analysis))
+		return 1
+	}
 
-	params := fmt.Sprintf("analysis=%s,duration=%d,comm_path=%s", option.Analysis, option.Duration, commPath)
+	// Build parameters expected by native agent. Current native uses a Unix socket at /tmp/jvmtool_memory_<pid>.sock
+	params := fmt.Sprintf("analysis=%s,task_type=%s,duration=%d", module, taskType, option.Duration)
 	if option.Output != "" {
 		params += fmt.Sprintf(",output=%s", option.Output)
 	}
@@ -107,48 +124,31 @@ func SAAgent(option SAAgentOption) int {
 		AgentParams: params,
 	}
 
-	log(fmt.Sprintf("Starting SA analysis for process %s (type: %s, duration: %ds)",
+	pkg.Log(fmt.Sprintf("Starting SA analysis for process %s (type: %s, duration: %ds)",
 		option.Pid, option.Analysis, option.Duration))
 
 	result := Jattach(jattachOpt)
-
-	// Check for agent attach errors using the new JT protocol
 	if result != 0 {
 		return result
 	}
 
-	// Create JT protocol reader
-	protocolReader := NewJTProtocolReader(commPath)
-	defer protocolReader.Cleanup()
-
-	// Wait for agent attach status
-	statusMsg, err := protocolReader.WaitForStatus(Success, 5*time.Second)
+	// Connect to native Unix socket and stream messages
+	// Note: current native implementation hardcodes memory module socket path
+	socketPath := fmt.Sprintf("/tmp/jvmtool_%s_%s.sock", module, option.Pid)
+	conn, err := connectSocket(socketPath, 5*time.Second)
 	if err != nil {
-		log(fmt.Sprintf("Agent attach failed: %v", err))
+		pkg.Log(fmt.Sprintf("Failed to connect to agent stream: %v", err))
 		return 1
 	}
 
-	if statusMsg != nil {
-		log(fmt.Sprintf("Agent status: %s", statusMsg.Content))
+	pkg.Log("Streaming analysis data...")
+	deadline := time.Now().Add(time.Duration(option.Duration+2) * time.Second)
+	if err := readMessages(conn, deadline); err != nil {
+		pkg.Log(fmt.Sprintf("SA stream error: %v", err))
+		return 1
 	}
 
-	// If no output file was specified, we need to wait for and display the temporary file output
-	if option.Output == "" && result == 0 {
-		log("Waiting for analysis to complete...")
-		time.Sleep(time.Duration(option.Duration+2) * time.Second)
-
-		// Look for temporary output files
-		tempPattern := fmt.Sprintf("/tmp/jvmtool_sa_%s*.log", option.Pid)
-		if matches, err := filepath.Glob(tempPattern); err == nil && len(matches) > 0 {
-			for _, tempFile := range matches {
-				displayTempFileOutput(tempFile)
-				// Clean up temp file
-				os.Remove(tempFile)
-			}
-		}
-	}
-
-	return result
+	return 0
 }
 
 // findNativeAgent searches for the native agent library in various locations
@@ -195,9 +195,8 @@ func findNativeAgent() (string, error) {
 
 		if pkg.PathExists(absPath) {
 			// Validate the agent library before returning
-			validator := pkg.NewDefaultAgentValidator()
-			if err := validator.ValidateLibrary(absPath); err != nil {
-				log(fmt.Sprintf("Agent validation failed for %s", absPath))
+			if err := ValidateAgentLibrary(absPath); err != nil {
+				pkg.Log(fmt.Sprintf("Agent validation failed for %s", absPath))
 				continue
 			}
 			return absPath, nil
@@ -225,13 +224,13 @@ func joinSearchPaths(paths []string) string {
 func displayTempFileOutput(tempFile string) {
 	file, err := os.Open(tempFile)
 	if err != nil {
-		log(fmt.Sprintf("Error reading analysis output: %v", err))
+		pkg.Log(fmt.Sprintf("Error reading analysis output: %v", err))
 		return
 	}
 	defer file.Close()
 
-	log("Analysis Results:")
-	log("================")
+	pkg.Log("Analysis Results:")
+	pkg.Log("================")
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -246,6 +245,6 @@ func displayTempFileOutput(tempFile string) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		log(fmt.Sprintf("Error reading analysis output: %v", err))
+		pkg.Log(fmt.Sprintf("Error reading analysis output: %v", err))
 	}
 }

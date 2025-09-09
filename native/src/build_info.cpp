@@ -15,13 +15,7 @@ __attribute__((section("__DATA,__jvmtool")))
 #else
 __attribute__((section(".jvmtool_meta")))
 #endif
-const struct jvmtool_metadata jvmtool_build_info = {JVMTOOL_MAGIC,
-#ifdef JVMTOOL_CHECKSUM
-                                                    JVMTOOL_CHECKSUM
-#else
-                                                    0
-#endif
-};
+const struct jvmtool_metadata jvmtool_build_info = {JVMTOOL_MAGIC};
 
 }  // namespace jvmtool
 }
