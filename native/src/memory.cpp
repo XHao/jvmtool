@@ -1,3 +1,5 @@
+#include "memory.h"
+
 #include <fcntl.h>      // for open()
 #include <sys/types.h>  // for pid_t
 #include <unistd.h>     // for getpid()
@@ -9,7 +11,6 @@
 #include <sstream>
 #include <thread>
 
-#include "memory.h"
 #include "metaspace_structs.h"
 
 namespace jvmtool {
@@ -35,6 +36,15 @@ MemoryOpt MemorySAModule::parse(std::unordered_map<std::string, std::string>& op
     opt.duration = std::atoi(options["duration"].c_str());
 
     return opt;
+}
+
+jvmtiError MemorySAModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
+    jvmtiError init_err = AgentModule::initialize(java_vm, jvmti);
+    if (init_err != JVMTI_ERROR_NONE) {
+        return init_err;
+    }
+    MetaspaceStructs::init(VMStructs::libjvm());
+    MetaspaceStructs::ready();
 }
 
 jint MemorySAModule::onAttach(std::unordered_map<std::string, std::string>& options) {
@@ -119,15 +129,16 @@ bool MemorySAModule::analyzeMetaspace(int fd) {
         if (!writeMessage(fd, data)) {
             return false;
         }
-        
+
         // If metaspace structures are not available, don't continue the loop
         if (!MetaspaceStructs::hasMetaspaceStructs()) {
-            Message warning(agentType(), STATUS, 
+            Message warning(
+                agentType(), STATUS,
                 "[Native SA] Metaspace analysis not supported on this JVM - ending analysis");
             writeAndClose(fd, warning);
             return false;
         }
-        
+
         return true;
     } catch (const std::exception& e) {
         Message err(agentType(), ERROR,

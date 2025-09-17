@@ -15,11 +15,12 @@
 
 namespace jvmtool {
 
-    #ifdef __APPLE__
-        #define REG(l, m) _ucontext->uc_mcontext->__ss.__##m
-    #else
-        #define REG(l, m) _ucontext->uc_mcontext.l
-    #endif
+#ifdef __APPLE__
+#  define REG(l, m)  _ucontext->uc_mcontext->__ss.__##m
+#else
+#  define REG(l, m)  _ucontext->uc_mcontext.l
+#endif
+
 
 uintptr_t& StackFrame::pc() {
     return (uintptr_t&)REG(pc, pc);
@@ -88,9 +89,9 @@ static inline bool isFixedSizeFrame(const char* name) {
         case 'm':
             return strncmp(name, "md5_implCompress", 16) == 0;
         case 's':
-            return strncmp(name, "sha256_implCompress", 19) == 0 ||
-                   strncmp(name, "string_indexof_linear_", 22) == 0 ||
-                   strncmp(name, "slow_subtype_check", 18) == 0;
+            return strncmp(name, "sha256_implCompress", 19) == 0
+                || strncmp(name, "string_indexof_linear_", 22) == 0
+                || strncmp(name, "slow_subtype_check", 18) == 0;
         default:
             return false;
     }
@@ -107,9 +108,11 @@ static inline bool isZeroSizeFrame(const char* name) {
         case 'a':
             return strncmp(name, "atomic", 6) == 0;
         case 'b':
-            return strncmp(name, "bigInteger", 10) == 0 || strcmp(name, "base64_encodeBlock") == 0;
+            return strncmp(name, "bigInteger", 10) == 0
+                || strcmp(name, "base64_encodeBlock") == 0;
         case 'c':
-            return strncmp(name, "copy_", 5) == 0 || strncmp(name, "compare_long_string_", 20) == 0;
+            return strncmp(name, "copy_", 5) == 0
+                || strncmp(name, "compare_long_string_", 20) == 0;
         case 'e':
             return strcmp(name, "encodeBlock") == 0;
         case 'f':
@@ -121,15 +124,15 @@ static inline bool isZeroSizeFrame(const char* name) {
         case 'i':
             return strncmp(name, "itable", 6) == 0;
         case 'l':
-            return strcmp(name, "large_byte_array_inflate") == 0 ||
-                   strncmp(name, "lookup_secondary_supers_", 24) == 0;
+            return strcmp(name, "large_byte_array_inflate") == 0
+                || strncmp(name, "lookup_secondary_supers_", 24) == 0;
         case 'm':
             return strncmp(name, "md5_implCompress", 16) == 0;
         case 's':
-            return strncmp(name, "sha1_implCompress", 17) == 0 ||
-                   strncmp(name, "compare_long_string_same_encoding", 33) == 0 ||
-                   strcmp(name, "compare_long_string_LL") == 0 ||
-                   strcmp(name, "compare_long_string_UU") == 0;
+            return strncmp(name, "sha1_implCompress", 17) == 0
+                || strncmp(name, "compare_long_string_same_encoding", 33) == 0
+                || strcmp(name, "compare_long_string_LL") == 0
+                || strcmp(name, "compare_long_string_UU") == 0;
         case 'u':
             return strcmp(name, "updateBytesAdler32") == 0;
         case 'v':
@@ -141,8 +144,7 @@ static inline bool isZeroSizeFrame(const char* name) {
     }
 }
 
-bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp,
-                            uintptr_t& fp) {
+bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp) {
     instruction_t* ip = (instruction_t*)pc;
     if (ip == entry || *ip == 0xd65f03c0) {
         pc = link();
@@ -172,10 +174,10 @@ bool StackFrame::unwindStub(instruction_t* entry, const char* name, uintptr_t& p
         // Should be done after isSTP check, since frame size may vary between JVM versions
         pc = link();
         return true;
-    } else if (strcmp(name, "forward_copy_longs") == 0 ||
-               strcmp(name, "backward_copy_longs") == 0
-               // There is a typo in JDK 8
-               || strcmp(name, "foward_copy_longs") == 0) {
+    } else if (strcmp(name, "forward_copy_longs") == 0
+            || strcmp(name, "backward_copy_longs") == 0
+            // There is a typo in JDK 8
+            || strcmp(name, "foward_copy_longs") == 0) {
         // These are called from arraycopy stub that maintains the regular frame link
         if (&pc == &this->pc() && withinCurrentStack(fp)) {
             // Unwind both stub frames for AsyncGetCallTrace
@@ -224,6 +226,107 @@ bool StackFrame::unwindCompiled(NMethod* nm, uintptr_t& pc, uintptr_t& sp, uintp
     return true;
 }
 
+static inline bool isFrameComplete(instruction_t* entry, instruction_t* ip) {
+    // Frame is fully constructed after sp is decremented by the frame size.
+    // Check if there is such an instruction anywhere between
+    // the method entry and the current instruction pointer.
+    while (--ip >= entry) {
+        if ((*ip & 0xff8003ff) == 0xd10003ff) {  // sub sp, sp, #frame_size
+            return true;
+        }
+    }
+    return false;
+}
+
+bool StackFrame::unwindPrologue(NMethod* nm, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp) {
+    // C1/C2 methods:
+    //   {stack_bang}
+    //   sub  sp, sp, #0x40
+    //   stp  x29, x30, [sp, #48]
+    //
+    // Native wrappers:
+    //   {stack_bang}
+    //   stp  x29, x30, [sp, #-16]!
+    //   mov  x29, sp
+    //   sub  sp, sp, #0x50
+    //
+    instruction_t* ip = (instruction_t*)pc;
+    instruction_t* entry = (instruction_t*)nm->entry();
+    if (ip <= entry) {
+        pc = link();
+    } else if ((*ip & 0xffe07fff) == 0xa9007bfd) {
+        // stp  x29, x30, [sp, #offset]
+        // SP has been adjusted, but FP not yet stored in a new frame
+        unsigned int offset = (*ip >> 12) & 0x1f8;
+        sp += offset + 16;
+        pc = link();
+    } else if (ip[0] == 0x910003fd && ip[-1] == 0xa9bf7bfd) {
+        // stp  x29, x30, [sp, #-16]!
+        // mov  x29, sp
+        sp += 16;
+        pc = ((uintptr_t*)sp)[-1];
+    } else if (ip <= entry + 16 && isFrameComplete(entry, ip)) {
+        sp += nm->frameSize() * sizeof(void*);
+        fp = ((uintptr_t*)sp)[-2];
+        pc = ((uintptr_t*)sp)[-1];
+    } else {
+        pc = link();
+    }
+    return true;
+}
+
+static inline bool isPollReturn(instruction_t* ip) {
+    // JDK 17+
+    //   add  sp, sp, #0x30
+    //   ldr  x8, [x28, #832]
+    //   cmp  sp, x8
+    //   b.hi offset
+    //   ret
+    //
+    // JDK 11
+    //   add  sp, sp, #0x30
+    //   ldr  x8, [x28, #264]
+    //   ldr  wzr, [x8]
+    //   ret
+    //
+    // JDK 8
+    //   add  sp, sp, #0x30
+    //   adrp x8, polling_page
+    //   ldr  wzr, [x8]
+    //   ret
+    //
+    if ((ip[0] & 0xffc003ff) == 0xf9400388 && (ip[-1] & 0xff8003ff) == 0x910003ff) {
+        // ldr x8, preceded by add sp
+        return true;
+    } else if ((ip[0] & 0x9f00001f) == 0x90000008 && (ip[-1] & 0xff8003ff) == 0x910003ff) {
+        // adrp x8, preceded by add sp
+        return true;
+    } else if (ip[0] == 0xeb2863ff && ip[2] == 0xd65f03c0) {
+        // cmp sp, x8, followed by ret
+        return true;
+    } else if ((ip[0] & 0xff000010) == 0x54000000 && ip[1] == 0xd65f03c0) {
+        // b.cond, followed by ret
+        return true;
+    } else if (ip[0] == 0xb940011f && ip[1] == 0xd65f03c0) {
+        // ldr wzr, followed by ret
+        return true;
+    }
+    return false;
+}
+
+bool StackFrame::unwindEpilogue(NMethod* nm, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp) {
+    //  ldp  x29, x30, [sp, #32]
+    //  add  sp, sp, #0x30
+    //  {poll_return}
+    //  ret
+    instruction_t* ip = (instruction_t*)pc;
+    if (*ip == 0xd65f03c0 || isPollReturn(ip)) {  // ret
+        pc = link();
+        return true;
+    }
+    return false;
+}
+
 bool StackFrame::unwindAtomicStub(const void*& pc) {
     // VM threads may call generated atomic stubs, which are not normally walkable
     const void* lr = (const void*)link();
@@ -257,7 +360,7 @@ bool StackFrame::skipFaultInstruction() {
 }
 
 bool StackFrame::checkInterruptedSyscall() {
-    #ifdef __APPLE__
+#ifdef __APPLE__
     // We are not interested in syscalls that do not check error code, e.g. semaphore_wait_trap
     if (*(instruction_t*)pc() == 0xd65f03c0) {
         return true;
@@ -268,15 +371,14 @@ bool StackFrame::checkInterruptedSyscall() {
     } else {
         return retval() == (uintptr_t)-EINTR;
     }
-    #else
+#else
     if (retval() == (uintptr_t)-EINTR) {
         // Workaround for JDK-8237858: restart the interrupted poll / epoll_wait manually
         uintptr_t nr = (uintptr_t)REG(regs[8], x[8]);
         if (nr == SYS_ppoll || (nr == SYS_epoll_pwait && (int)arg3() == -1)) {
             // Check against unreadable page for the loop below
             const uintptr_t max_distance = 24;
-            if ((pc() & 0xfff) < max_distance &&
-                SafeAccess::load32((int32_t*)(pc() - max_distance)) == 0) {
+            if ((pc() & 0xfff) < max_distance && SafeAccess::load32((int32_t*)(pc() - max_distance)) == 0) {
                 return true;
             }
             // Try to restore the original value of x0 saved in another register
@@ -294,7 +396,7 @@ bool StackFrame::checkInterruptedSyscall() {
         return true;
     }
     return false;
-    #endif
+#endif
 }
 
 bool StackFrame::isSyscall(instruction_t* pc) {

@@ -22,9 +22,6 @@ void* MetaspaceStructs::_shared_metaspace_top = nullptr;
 
 // Run at agent load time
 void MetaspaceStructs::init(CodeCache* libjvm) {
-    // Initialize parent class first
-    VMStructs::init(libjvm);
-    
     if (libjvm != nullptr) {
         initMetaspaceOffsets();
     }
@@ -32,7 +29,6 @@ void MetaspaceStructs::init(CodeCache* libjvm) {
 
 // Run when VM is initialized and JNI is available
 void MetaspaceStructs::ready() {
-    // Initialize parent class first
     VMStructs::ready();
     
     resolveMetaspaceOffsets();

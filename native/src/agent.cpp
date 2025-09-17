@@ -1,6 +1,7 @@
 #include "agent.h"
 
 #include <dlfcn.h>
+
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -8,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "library_loader.h"
 #include "metaspace_structs.h"
 #include "vm/codeCache.h"
 #include "vm/vm.h"
@@ -241,39 +243,28 @@ void AgentManager::registerModule(AgentModule* module) {
     }
 }
 
-void AgentManager::initializeMetaspaceStructs(JavaVM* java_vm) {
-    try {
-        // Get libjvm library base address using dladdr
-        Dl_info info;
-        if (dladdr((void*)java_vm, &info) != 0 && info.dli_fbase != nullptr) {
-            // Create CodeCache for libjvm with estimated size
-            CodeCache* libjvm = new CodeCache("libjvm.dylib", 0, info.dli_fbase, 
-                                            (void*)((char*)info.dli_fbase + 0x10000000));
-            
-            // Initialize MetaspaceStructs with libjvm
-            MetaspaceStructs::init(libjvm);
-            
-            // Complete initialization after VM is ready
-            MetaspaceStructs::ready();
-            
-            std::cerr << "[Native SA] MetaspaceStructs initialized successfully" << std::endl;
-        } else {
-            std::cerr << "[Native SA] Failed to get libjvm base address" << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "[Native SA] Failed to initialize MetaspaceStructs: " << e.what() << std::endl;
-    }
-}
-
 jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
     const std::lock_guard<std::mutex> lock(modules_mutex_);
 
     if (!inited_) {
-        // Initialize VM first
         VM::init(java_vm, jvmti);
-        
-        // Initialize MetaspaceStructs after VM initialization
-        initializeMetaspaceStructs(java_vm);
+
+        CodeCache* libjvm = LibraryLoader::findLibraryByName(
+#ifdef __APPLE__
+            "libjvm.dylib"
+#elif __linux__
+            "libjvm.so"
+#else
+            "libjvm"
+#endif
+        );
+        if (libjvm != nullptr) {
+            VMStructs::init(libjvm);
+        } else {
+            std::cerr << "[Native SA] Warning: failed to construct CodeCache for libjvm; symbol "
+                         "lookups may be limited"
+                      << std::endl;
+        }
 
         for (auto it = modules_.begin(); it != modules_.end();) {
             const auto& [name, module] = *it;

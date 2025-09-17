@@ -121,6 +121,8 @@ class VMStructs {
     static jfieldID _tid;
     static jfieldID _klass;
     static int _tls_index;
+    static intptr_t _env_offset;
+    static void* _java_thread_vtbl[6];
 
     typedef void (*LockFunc)(void*);
     static LockFunc _lock_func;
@@ -142,7 +144,7 @@ class VMStructs {
         return (uintptr_t)ptr >= 0x1000 && ((uintptr_t)ptr & (sizeof(uintptr_t) - 1)) == 0;
     }
 
-    template <typename T>
+    template<typename T>
     static T align(const void* ptr) {
         static_assert(std::is_pointer<T>::value, "T must be a pointer type");
         return (T)((uintptr_t)ptr & ~(sizeof(T) - 1));
@@ -189,6 +191,7 @@ class VMStructs {
     }
 };
 
+
 class MethodList {
   public:
     enum { SIZE = 8 };
@@ -207,6 +210,7 @@ class MethodList {
     }
 };
 
+
 class NMethod;
 class VMMethod;
 
@@ -214,9 +218,9 @@ class VMSymbol : VMStructs {
   public:
     unsigned short length() {
         if (_symbol_length_offset >= 0) {
-            return *(unsigned short*)at(_symbol_length_offset);
+          return *(unsigned short*) at(_symbol_length_offset);
         } else {
-            return *(unsigned int*)at(_symbol_length_and_refcount_offset) >> 16;
+          return *(unsigned int*) at(_symbol_length_and_refcount_offset) >> 16;
         }
     }
 
@@ -228,7 +232,7 @@ class VMSymbol : VMStructs {
 class ClassLoaderData : VMStructs {
   private:
     void* mutex() {
-        return *(void**)at(sizeof(uintptr_t) * 3);
+        return *(void**) at(sizeof(uintptr_t) * 3);
     }
 
   public:
@@ -241,7 +245,7 @@ class ClassLoaderData : VMStructs {
     }
 
     MethodList** methodList() {
-        return (MethodList**)at(sizeof(uintptr_t) * 6 + 8);
+        return (MethodList**) at(sizeof(uintptr_t) * 6 + 8);
     }
 };
 
@@ -286,20 +290,20 @@ class VMKlass : VMStructs {
     }
 
     VMSymbol* name() {
-        return *(VMSymbol**)at(_klass_name_offset);
+        return *(VMSymbol**) at(_klass_name_offset);
     }
 
     ClassLoaderData* classLoaderData() {
-        return *(ClassLoaderData**)at(_class_loader_data_offset);
+        return *(ClassLoaderData**) at(_class_loader_data_offset);
     }
 
     int methodCount() {
-        int* methods = *(int**)at(_methods_offset);
+        int* methods = *(int**) at(_methods_offset);
         return methods == NULL ? 0 : *methods & 0xffff;
     }
 
     jmethodID* jmethodIDs() {
-        return __atomic_load_n((jmethodID**)at(_jmethod_ids_offset), __ATOMIC_ACQUIRE);
+        return __atomic_load_n((jmethodID**) at(_jmethod_ids_offset), __ATOMIC_ACQUIRE);
     }
 };
 
@@ -317,19 +321,19 @@ class JavaFrameAnchor : VMStructs {
     }
 
     uintptr_t lastJavaSP() {
-        return *(uintptr_t*)at(_anchor_sp_offset);
+        return *(uintptr_t*) at(_anchor_sp_offset);
     }
 
     uintptr_t lastJavaFP() {
-        return *(uintptr_t*)at(_anchor_fp_offset);
+        return *(uintptr_t*) at(_anchor_fp_offset);
     }
 
     const void* lastJavaPC() {
-        return *(const void**)at(_anchor_pc_offset);
+        return *(const void**) at(_anchor_pc_offset);
     }
 
     void setLastJavaPC(const void* pc) {
-        *(const void**)at(_anchor_pc_offset) = pc;
+        *(const void**) at(_anchor_pc_offset) = pc;
     }
 };
 
@@ -353,8 +357,24 @@ class VMThread : VMStructs {
 
     int osThreadId();
 
+    JNIEnv* jni();
+
+    const void** vtable() {
+        return *(const void***)this;
+    }
+
+    // This thread is considered a JavaThread if at least 2 of the selected 3 vtable entries
+    // match those of a known JavaThread (which is either application thread or AttachListener).
+    // Indexes were carefully chosen to work on OpenJDK 8 to 25, both product an debug builds.
+    bool isJavaThread() {
+        const void** vtbl = vtable();
+        return (vtbl[1] == _java_thread_vtbl[1]) +
+               (vtbl[3] == _java_thread_vtbl[3]) +
+               (vtbl[5] == _java_thread_vtbl[5]) >= 2;
+    }
+
     int state() {
-        return _thread_state_offset >= 0 ? *(int*)at(_thread_state_offset) : 0;
+        return _thread_state_offset >= 0 ? *(int*) at(_thread_state_offset) : 0;
     }
 
     bool inJava() {
@@ -362,23 +382,23 @@ class VMThread : VMStructs {
     }
 
     bool inDeopt() {
-        return *(void**)at(_thread_vframe_offset) != NULL;
+        return *(void**) at(_thread_vframe_offset) != NULL;
     }
 
     void*& exception() {
-        return *(void**)at(_thread_exception_offset);
+        return *(void**) at(_thread_exception_offset);
     }
 
     JavaFrameAnchor* anchor() {
-        return (JavaFrameAnchor*)at(_thread_anchor_offset);
+        return (JavaFrameAnchor*) at(_thread_anchor_offset);
     }
 
     VMMethod* compiledMethod() {
-        const char* env = *(const char**)at(_comp_env_offset);
+        const char* env = *(const char**) at(_comp_env_offset);
         if (env != NULL) {
-            const char* task = *(const char**)(env + _comp_task_offset);
+            const char* task = *(const char**) (env + _comp_task_offset);
             if (task != NULL) {
-                return *(VMMethod**)(task + _comp_method_offset);
+                return *(VMMethod**) (task + _comp_method_offset);
             }
         }
         return NULL;
@@ -394,68 +414,67 @@ class VMMethod : VMStructs {
 
     // Workaround for JDK-8313816
     static bool isStaleMethodId(jmethodID id) {
-        if (!_can_dereference_jmethod_id)
-            return false;
+        if (!_can_dereference_jmethod_id) return false;
         VMMethod* vm_method = *(VMMethod**)id;
         return vm_method == NULL || vm_method->id() == NULL;
     }
 
     const char* bytecode() {
-        return *(const char**)at(_method_constmethod_offset) + _constmethod_size;
+        return *(const char**) at(_method_constmethod_offset) + _constmethod_size;
     }
 
     NMethod* code() {
-        return *(NMethod**)at(_method_code_offset);
+        return *(NMethod**) at(_method_code_offset);
     }
 };
 
 class NMethod : VMStructs {
   public:
     int frameSize() {
-        return *(int*)at(_frame_size_offset);
+        return *(int*) at(_frame_size_offset);
     }
 
     short frameCompleteOffset() {
-        return *(short*)at(_frame_complete_offset);
+        return *(short*) at(_frame_complete_offset);
     }
 
     void setFrameCompleteOffset(int offset) {
         if (_nmethod_immutable_offset > 0) {
             // _frame_complete_offset is short on JDK 23+
-            *(short*)at(_frame_complete_offset) = offset;
+            *(short*) at(_frame_complete_offset) = offset;
         } else {
-            *(int*)at(_frame_complete_offset) = offset;
+            *(int*) at(_frame_complete_offset) = offset;
         }
     }
 
     const char* immutableDataAt(int offset) {
         if (_nmethod_immutable_offset > 0) {
-            return *(const char**)at(_nmethod_immutable_offset) + offset;
+            return *(const char**) at(_nmethod_immutable_offset) + offset;
         }
         return at(offset);
     }
 
     const char* code() {
         if (_code_offset > 0) {
-            return at(*(int*)at(_code_offset));
+            return at(*(int*) at(_code_offset));
         } else {
-            return *(const char**)at(-_code_offset);
+            return *(const char**) at(-_code_offset);
         }
     }
 
     const char* scopes() {
         if (_scopes_data_offset > 0) {
-            return immutableDataAt(*(int*)at(_scopes_data_offset));
+            return immutableDataAt(*(int*) at(_scopes_data_offset));
         } else {
-            return *(const char**)at(-_scopes_data_offset);
+            return *(const char**) at(-_scopes_data_offset);
         }
     }
 
     const void* entry() {
         if (_nmethod_entry_offset > 0) {
-            return at(*(int*)at(_code_offset) + *(unsigned short*)at(_nmethod_entry_offset));
+            return at(*(int*) at(_code_offset) + *(unsigned short*) at(_nmethod_entry_offset));
         } else {
-            return *(void**)at(-_nmethod_entry_offset);
+            return *(void**) at(-_nmethod_entry_offset);
         }
     }
 
@@ -468,7 +487,7 @@ class NMethod : VMStructs {
     }
 
     const char* name() {
-        return *(const char**)at(_nmethod_name_offset);
+        return *(const char**) at(_nmethod_name_offset);
     }
 
     bool isNMethod() {
@@ -482,7 +501,7 @@ class NMethod : VMStructs {
     }
 
     VMMethod* method() {
-        return *(VMMethod**)at(_nmethod_method_offset);
+        return *(VMMethod**) at(_nmethod_method_offset);
     }
 
     char state() {
@@ -494,20 +513,18 @@ class NMethod : VMStructs {
     }
 
     int level() {
-        return _nmethod_level_offset >= 0 ? *(signed char*)at(_nmethod_level_offset) : 0;
+        return _nmethod_level_offset >= 0 ? *(signed char*) at(_nmethod_level_offset) : 0;
     }
 
     VMMethod** metadata() {
         if (_mutable_data_offset >= 0) {
             // Since JDK 25
-            return (VMMethod**)(*(char**)at(_mutable_data_offset) +
-                                *(int*)at(_relocation_size_offset));
+            return (VMMethod**) (*(char**) at(_mutable_data_offset) + *(int*) at(_relocation_size_offset));
         } else if (_data_offset > 0) {
             // since JDK 23
-            return (VMMethod**)at(*(int*)at(_data_offset) +
-                                  *(unsigned short*)at(_nmethod_metadata_offset));
+            return (VMMethod**) at(*(int*) at(_data_offset) + *(unsigned short*) at(_nmethod_metadata_offset));
         }
-        return (VMMethod**)at(*(int*)at(_nmethod_metadata_offset));
+        return (VMMethod**) at(*(int*) at(_nmethod_metadata_offset));
     }
 
     int findScopeOffset(const void* pc);
@@ -518,7 +535,7 @@ class CodeHeap : VMStructs {
     static bool contains(char* heap, const void* pc) {
         return heap != NULL &&
                pc >= *(const void**)(heap + _code_heap_memory_offset + _vs_low_offset) &&
-               pc < *(const void**)(heap + _code_heap_memory_offset + _vs_high_offset);
+               pc <  *(const void**)(heap + _code_heap_memory_offset + _vs_high_offset);
     }
 
     static NMethod* findNMethod(char* heap, const void* pc);
@@ -535,21 +552,16 @@ class CodeHeap : VMStructs {
     static void updateBounds(const void* start, const void* end) {
         for (const void* low = _code_heap_low;
              start < low && !__sync_bool_compare_and_swap(&_code_heap_low, low, start);
-             low = _code_heap_low)
-            ;
+             low = _code_heap_low);
         for (const void* high = _code_heap_high;
              end > high && !__sync_bool_compare_and_swap(&_code_heap_high, high, end);
-             high = _code_heap_high)
-            ;
+             high = _code_heap_high);
     }
 
     static NMethod* findNMethod(const void* pc) {
-        if (contains(_code_heap[0], pc))
-            return findNMethod(_code_heap[0], pc);
-        if (contains(_code_heap[1], pc))
-            return findNMethod(_code_heap[1], pc);
-        if (contains(_code_heap[2], pc))
-            return findNMethod(_code_heap[2], pc);
+        if (contains(_code_heap[0], pc)) return findNMethod(_code_heap[0], pc);
+        if (contains(_code_heap[1], pc)) return findNMethod(_code_heap[1], pc);
+        if (contains(_code_heap[2], pc)) return findNMethod(_code_heap[2], pc);
         return NULL;
     }
 };
@@ -565,37 +577,40 @@ class CollectedHeap : VMStructs {
     }
 
     uintptr_t start() {
-        return *(uintptr_t*)at(_region_start_offset);
+        return *(uintptr_t*) at(_region_start_offset);
     }
 
     uintptr_t size() {
-        return (*(uintptr_t*)at(_region_size_offset)) * sizeof(uintptr_t);
+        return (*(uintptr_t*) at(_region_size_offset)) * sizeof(uintptr_t);
     }
 };
 
 class JVMFlag : VMStructs {
   private:
-    enum { ORIGIN_DEFAULT = 0, ORIGIN_MASK = 15, SET_ON_CMDLINE = 1 << 17 };
+    enum {
+        ORIGIN_DEFAULT = 0,
+        ORIGIN_MASK    = 15,
+        SET_ON_CMDLINE = 1 << 17
+    };
 
   public:
     static JVMFlag* find(const char* name);
 
     const char* name() {
-        return *(const char**)at(_flag_name_offset);
+        return *(const char**) at(_flag_name_offset);
     }
 
     char* addr() {
-        return *(char**)at(_flag_addr_offset);
+        return *(char**) at(_flag_addr_offset);
     }
 
     bool isDefault() {
-        return _flag_origin_offset < 0 ||
-               (*(int*)at(_flag_origin_offset) & ORIGIN_MASK) == ORIGIN_DEFAULT;
+        return _flag_origin_offset < 0 || (*(int*) at(_flag_origin_offset) & ORIGIN_MASK) == ORIGIN_DEFAULT;
     }
 
     void setCmdline() {
         if (_flag_origin_offset >= 0) {
-            *(int*)at(_flag_origin_offset) |= SET_ON_CMDLINE;
+            *(int*) at(_flag_origin_offset) |= SET_ON_CMDLINE;
         }
     }
 
@@ -651,7 +666,10 @@ class ScopeDesc : VMStructs {
 
 class InterpreterFrame : VMStructs {
   public:
-    enum { sender_sp_offset = -1, method_offset = -3 };
+    enum {
+        sender_sp_offset = -1,
+        method_offset = -3
+    };
 
     static int bcp_offset() {
         return _interpreter_frame_bcp_offset;

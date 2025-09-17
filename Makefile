@@ -4,6 +4,7 @@ BINARY_NAME = jvmtool
 BUILD_DIR = build
 DIST_DIR = dist
 NATIVE_BUILD_DIR = native/build
+BUILD_TYPE ?= RelWithDebInfo
 
 # Installation prefix - can be overridden by user
 PREFIX ?= /usr/local
@@ -22,7 +23,7 @@ endif
 
 AGENT_LIB = jvmtool-agent.$(LIB_EXT)
 
-.PHONY: all build build-go build-native build-native-with-tests test test-go test-native clean package install uninstall install-info help dirs format format-check lint coverage coverage-report
+.PHONY: all build build-go build-native build-native-debug build-native-with-tests test test-go test-native clean package install uninstall install-info help dirs format format-check lint coverage coverage-report
 
 all: build
 
@@ -44,8 +45,22 @@ build-go: dirs
 
 # Build native agent library
 build-native: dirs
-	@echo "Building native agent library..."
-	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent
+	@echo "Building native agent library (BUILD_TYPE=$(BUILD_TYPE))..."
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) && make jvmtool-agent
+	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
+		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
+		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
+	elif [ -f "$(NATIVE_BUILD_DIR)/lib$(AGENT_LIB)" ]; then \
+		cp $(NATIVE_BUILD_DIR)/lib$(AGENT_LIB) $(DIST_DIR)/lib/$(AGENT_LIB); \
+		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
+	else \
+		echo "Warning: Native agent library not found after build"; \
+	fi
+
+# Build native agent library in Debug mode
+build-native-debug: dirs
+	@echo "Building native agent library (Debug)..."
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug && make jvmtool-agent
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
 		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
 		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
@@ -58,8 +73,8 @@ build-native: dirs
 
 # Build native agent library with tests
 build-native-with-tests: dirs
-	@echo "Building native agent library with tests..."
-	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON && make jvmtool-agent jvmtool-agent-test
+	@echo "Building native agent library with tests (BUILD_TYPE=$(BUILD_TYPE))..."
+	@cd $(NATIVE_BUILD_DIR) && USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) && make jvmtool-agent jvmtool-agent-test
 	@if [ -f "$(NATIVE_BUILD_DIR)/$(AGENT_LIB)" ]; then \
 		cp $(NATIVE_BUILD_DIR)/$(AGENT_LIB) $(DIST_DIR)/lib/; \
 		echo "Native agent library built: $(DIST_DIR)/lib/$(AGENT_LIB)"; \
@@ -75,7 +90,7 @@ test: dirs
 	go test ./...
 	@echo "Running C++ tests..."
 	@cd $(NATIVE_BUILD_DIR) && \
-		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON >/dev/null && make jvmtool-agent-test >/dev/null) && \
+		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) >/dev/null && make jvmtool-agent-test >/dev/null) && \
 		ctest --output-on-failure
 
 # Code formatting and linting targets
@@ -95,7 +110,7 @@ lint: build-native
 coverage: dirs
 	@echo "Building with coverage enabled..."
 	@cd $(NATIVE_BUILD_DIR) && \
-		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DENABLE_COVERAGE=ON >/dev/null && make jvmtool-agent-test >/dev/null)
+		(USE_CACHED_BUILD_INFO=1 cmake .. -DBUILD_TESTS=ON -DENABLE_COVERAGE=ON -DCMAKE_BUILD_TYPE=Debug >/dev/null && make jvmtool-agent-test >/dev/null)
 	@echo "Running tests for coverage..."
 	@cd $(NATIVE_BUILD_DIR) && ctest --output-on-failure >/dev/null
 	@echo "Generating coverage report..."
@@ -195,6 +210,7 @@ help:
 	@echo "  build         Build both Go binary and native agent"
 	@echo "  build-go      Build only the Go binary"
 	@echo "  build-native  Build only the native agent library"
+	@echo "  build-native-debug Build native agent library with Debug symbols"
 	@echo "  test          Run both Go and C++ tests"
 	@echo "  format        Format native C++ code"
 	@echo "  format-check  Check native C++ code formatting"
@@ -210,6 +226,7 @@ help:
 	@echo ""
 	@echo "Configuration:"
 	@echo "  PREFIX        Installation prefix (default: /usr/local)"
+	@echo "  BUILD_TYPE    CMake build type (default: RelWithDebInfo). Use Debug for full symbols."
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"

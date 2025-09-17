@@ -13,35 +13,35 @@
 namespace jvmtool {
 
 enum {
-    DW_CFA_nop = 0x0,
-    DW_CFA_set_loc = 0x1,
-    DW_CFA_advance_loc1 = 0x2,
-    DW_CFA_advance_loc2 = 0x3,
-    DW_CFA_advance_loc4 = 0x4,
-    DW_CFA_offset_extended = 0x5,
-    DW_CFA_restore_extended = 0x6,
-    DW_CFA_undefined = 0x7,
-    DW_CFA_same_value = 0x8,
-    DW_CFA_register = 0x9,
-    DW_CFA_remember_state = 0xa,
-    DW_CFA_restore_state = 0xb,
-    DW_CFA_def_cfa = 0xc,
-    DW_CFA_def_cfa_register = 0xd,
-    DW_CFA_def_cfa_offset = 0xe,
-    DW_CFA_def_cfa_expression = 0xf,
-    DW_CFA_expression = 0x10,
-    DW_CFA_offset_extended_sf = 0x11,
-    DW_CFA_def_cfa_sf = 0x12,
-    DW_CFA_def_cfa_offset_sf = 0x13,
-    DW_CFA_val_offset = 0x14,
-    DW_CFA_val_offset_sf = 0x15,
-    DW_CFA_val_expression = 0x16,
+    DW_CFA_nop                     = 0x0,
+    DW_CFA_set_loc                 = 0x1,
+    DW_CFA_advance_loc1            = 0x2,
+    DW_CFA_advance_loc2            = 0x3,
+    DW_CFA_advance_loc4            = 0x4,
+    DW_CFA_offset_extended         = 0x5,
+    DW_CFA_restore_extended        = 0x6,
+    DW_CFA_undefined               = 0x7,
+    DW_CFA_same_value              = 0x8,
+    DW_CFA_register                = 0x9,
+    DW_CFA_remember_state          = 0xa,
+    DW_CFA_restore_state           = 0xb,
+    DW_CFA_def_cfa                 = 0xc,
+    DW_CFA_def_cfa_register        = 0xd,
+    DW_CFA_def_cfa_offset          = 0xe,
+    DW_CFA_def_cfa_expression      = 0xf,
+    DW_CFA_expression              = 0x10,
+    DW_CFA_offset_extended_sf      = 0x11,
+    DW_CFA_def_cfa_sf              = 0x12,
+    DW_CFA_def_cfa_offset_sf       = 0x13,
+    DW_CFA_val_offset              = 0x14,
+    DW_CFA_val_offset_sf           = 0x15,
+    DW_CFA_val_expression          = 0x16,
     DW_CFA_AARCH64_negate_ra_state = 0x2d,
-    DW_CFA_GNU_args_size = 0x2e,
+    DW_CFA_GNU_args_size           = 0x2e,
 
-    DW_CFA_advance_loc = 0x1,
-    DW_CFA_offset = 0x2,
-    DW_CFA_restore = 0x3,
+    DW_CFA_advance_loc             = 0x1,
+    DW_CFA_offset                  = 0x2,
+    DW_CFA_restore                 = 0x3,
 };
 
 enum {
@@ -52,16 +52,16 @@ enum {
     DW_OP_const2s = 0x0b,
     DW_OP_const4u = 0x0c,
     DW_OP_const4s = 0x0d,
-    DW_OP_constu = 0x10,
-    DW_OP_consts = 0x11,
-    DW_OP_minus = 0x1c,
-    DW_OP_plus = 0x22,
+    DW_OP_constu  = 0x10,
+    DW_OP_consts  = 0x11,
+    DW_OP_minus   = 0x1c,
+    DW_OP_plus    = 0x22,
 };
 
-FrameDesc FrameDesc::empty_frame = {0, DW_REG_SP | EMPTY_FRAME_SIZE << 8, DW_SAME_FP,
-                                    -EMPTY_FRAME_SIZE};
-FrameDesc FrameDesc::default_frame = {0, DW_REG_FP | LINKED_FRAME_SIZE << 8, -LINKED_FRAME_SIZE,
-                                      -LINKED_FRAME_SIZE + DW_STACK_SLOT};
+
+FrameDesc FrameDesc::empty_frame = {0, DW_REG_SP | EMPTY_FRAME_SIZE << 8, DW_SAME_FP, INITIAL_PC_OFFSET};
+FrameDesc FrameDesc::default_frame = {0, DW_REG_FP | LINKED_FRAME_SIZE << 8, -LINKED_FRAME_SIZE, -LINKED_FRAME_SIZE + DW_STACK_SLOT};
+
 
 DwarfParser::DwarfParser(const char* name, const char* image_base, const char* eh_frame_hdr) {
     _name = name;
@@ -84,14 +84,14 @@ void DwarfParser::parse(const char* eh_frame_hdr) {
     u8 fde_count_enc = eh_frame_hdr[2];
     u8 table_enc = eh_frame_hdr[3];
 
-    if (version != 1 || (eh_frame_ptr_enc & 0x7) != 0x3 || (fde_count_enc & 0x7) != 0x3 ||
-        (table_enc & 0xf7) != 0x33) {
-        // Unsupported .eh_frame_hdr format
+    if (version != 1 || (eh_frame_ptr_enc & 0x7) != 0x3 || (fde_count_enc & 0x7) != 0x3 || (table_enc & 0xf7) != 0x33) {
+        // Log::warn("Unsupported .eh_frame_hdr [%02x%02x%02x%02x] in %s",
+        //           version, eh_frame_ptr_enc, fde_count_enc, table_enc, _name);
         return;
     }
 
     int fde_count = *(int*)(eh_frame_hdr + 8);
-    int* table = (int*)(eh_frame_hdr + 16);
+    int* table =  (int*)(eh_frame_hdr + 16);
     for (int i = 0; i < fde_count; i++) {
         _ptr = eh_frame_hdr + table[i * 2];
         parseFde();
@@ -106,8 +106,7 @@ void DwarfParser::parseCie() {
 
     const char* cie_start = _ptr;
     _ptr += 5;
-    while (*_ptr++) {
-    }
+    while (*_ptr++) {}
     _code_align = getLeb();
     _data_align = getSLeb();
     _ptr = cie_start + cie_len;
@@ -131,8 +130,7 @@ void DwarfParser::parseFde() {
     u32 range_len = get32();
     _ptr += getLeb();
     parseInstructions(range_start, fde_start + fde_len);
-    addRecord(range_start + range_len, DW_REG_FP, LINKED_FRAME_SIZE, -LINKED_FRAME_SIZE,
-              -LINKED_FRAME_SIZE + DW_STACK_SLOT);
+    addRecord(range_start + range_len, DW_REG_FP, LINKED_FRAME_SIZE, -LINKED_FRAME_SIZE, -LINKED_FRAME_SIZE + DW_STACK_SLOT);
 }
 
 void DwarfParser::parseInstructions(u32 loc, const char* end) {
@@ -142,12 +140,12 @@ void DwarfParser::parseInstructions(u32 loc, const char* end) {
     u32 cfa_reg = DW_REG_SP;
     int cfa_off = EMPTY_FRAME_SIZE;
     int fp_off = DW_SAME_FP;
-    int pc_off = -EMPTY_FRAME_SIZE;
+    int pc_off = INITIAL_PC_OFFSET;
 
     u32 rem_cfa_reg = DW_REG_SP;
     int rem_cfa_off = EMPTY_FRAME_SIZE;
     int rem_fp_off = DW_SAME_FP;
-    int rem_pc_off = -EMPTY_FRAME_SIZE;
+    int rem_pc_off = INITIAL_PC_OFFSET;
 
     while (_ptr < end) {
         u8 op = get8();
@@ -172,14 +170,9 @@ void DwarfParser::parseInstructions(u32 loc, const char* end) {
                         break;
                     case DW_CFA_offset_extended:
                         switch (getLeb()) {
-                            case DW_REG_FP:
-                                fp_off = getLeb() * data_align;
-                                break;
-                            case DW_REG_PC:
-                                pc_off = getLeb() * data_align;
-                                break;
-                            default:
-                                skipLeb();
+                            case DW_REG_FP: fp_off = getLeb() * data_align; break;
+                            case DW_REG_PC: pc_off = getLeb() * data_align; break;
+                            default: skipLeb();
                         }
                         break;
                     case DW_CFA_restore_extended:
@@ -228,14 +221,9 @@ void DwarfParser::parseInstructions(u32 loc, const char* end) {
                         break;
                     case DW_CFA_offset_extended_sf:
                         switch (getLeb()) {
-                            case DW_REG_FP:
-                                fp_off = getSLeb() * data_align;
-                                break;
-                            case DW_REG_PC:
-                                pc_off = getSLeb() * data_align;
-                                break;
-                            default:
-                                skipLeb();
+                            case DW_REG_FP: fp_off = getSLeb() * data_align; break;
+                            case DW_REG_PC: pc_off = getSLeb() * data_align; break;
+                            default: skipLeb();
                         }
                         break;
                     case DW_CFA_def_cfa_sf:
@@ -268,7 +256,7 @@ void DwarfParser::parseInstructions(u32 loc, const char* end) {
                         skipLeb();
                         break;
                     default:
-                        // Unknown DWARF instruction
+                        // Log::warn("Unknown DWARF instruction 0x%x in %s", op, _name);
                         return;
                 }
                 break;
@@ -278,19 +266,16 @@ void DwarfParser::parseInstructions(u32 loc, const char* end) {
                 break;
             case DW_CFA_offset:
                 switch (op & 0x3f) {
-                    case DW_REG_FP:
-                        fp_off = getLeb() * data_align;
-                        break;
-                    case DW_REG_PC:
-                        pc_off = getLeb() * data_align;
-                        break;
-                    default:
-                        skipLeb();
+                    case DW_REG_FP: fp_off = getLeb() * data_align; break;
+                    case DW_REG_PC: pc_off = getLeb() * data_align; break;
+                    default: skipLeb();
                 }
                 break;
             case DW_CFA_restore:
                 if ((op & 0x3f) == DW_REG_FP) {
                     fp_off = DW_SAME_FP;
+                } else if ((op & 0x3f) == DW_REG_PC) {
+                    pc_off = INITIAL_PC_OFFSET;
                 }
                 break;
         }
@@ -344,7 +329,7 @@ int DwarfParser::parseExpression() {
                 pc_off += tos;
                 break;
             default:
-                // Unknown DWARF opcode
+                // Log::warn("Unknown DWARF opcode 0x%x in %s", op, _name);
                 _ptr = end;
                 return 0;
         }
@@ -355,8 +340,8 @@ int DwarfParser::parseExpression() {
 
 void DwarfParser::addRecord(u32 loc, u32 cfa_reg, int cfa_off, int fp_off, int pc_off) {
     int cfa = cfa_reg | cfa_off << 8;
-    if (_prev == NULL || (_prev->loc == loc && --_count >= 0) || _prev->cfa != cfa ||
-        _prev->fp_off != fp_off || _prev->pc_off != pc_off) {
+    if (_prev == NULL || (_prev->loc == loc && --_count >= 0) ||
+            _prev->cfa != cfa || _prev->fp_off != fp_off || _prev->pc_off != pc_off) {
         _prev = addRecordRaw(loc, cfa, fp_off, pc_off);
     }
 }

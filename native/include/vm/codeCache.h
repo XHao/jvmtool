@@ -10,11 +10,12 @@
 
 namespace jvmtool {
 
-#define NO_MIN_ADDRESS ((const void*)-1)
-#define NO_MAX_ADDRESS ((const void*)0)
+#define NO_MIN_ADDRESS  ((const void*)-1)
+#define NO_MAX_ADDRESS  ((const void*)0)
 
 const int INITIAL_CODE_CACHE_CAPACITY = 1000;
 const int MAX_NATIVE_LIBS = 2048;
+
 
 enum ImportId {
     im_dlopen,
@@ -31,14 +32,19 @@ enum ImportId {
     NUM_IMPORTS
 };
 
-enum ImportType { PRIMARY, SECONDARY, NUM_IMPORT_TYPES };
+enum ImportType {
+    PRIMARY,
+    SECONDARY,
+    NUM_IMPORT_TYPES
+};
 
 enum Mark {
     MARK_VM_RUNTIME = 1,
     MARK_INTERPRETER = 2,
     MARK_COMPILER_ENTRY = 3,
-    MARK_ASYNC_PROFILER = 4,  // async-profiler internals such as native hooks.
+    MARK_ASYNC_PROFILER = 4, // async-profiler internals such as native hooks.
 };
+
 
 class NativeFunc {
   private:
@@ -70,6 +76,7 @@ class NativeFunc {
     }
 };
 
+
 class CodeBlob {
   public:
     const void* _start;
@@ -91,7 +98,8 @@ class CodeBlob {
     }
 };
 
-struct FrameDesc;
+
+class FrameDesc;
 
 class CodeCache {
   private:
@@ -121,8 +129,11 @@ class CodeCache {
     void saveImport(ImportId id, void** entry);
 
   public:
-    CodeCache(const char* name, short lib_index = -1, const void* min_address = NO_MIN_ADDRESS,
-              const void* max_address = NO_MAX_ADDRESS, const char* image_base = NULL);
+    CodeCache(const char* name,
+              short lib_index = -1,
+              const void* min_address = NO_MIN_ADDRESS,
+              const void* max_address = NO_MAX_ADDRESS,
+              const char* image_base = NULL);
 
     ~CodeCache();
 
@@ -201,13 +212,15 @@ class CodeCache {
     friend class UnloadProtection;
 };
 
+
 class CodeCacheArray {
   private:
     CodeCache* _libs[MAX_NATIVE_LIBS];
     int _count;
 
   public:
-    CodeCacheArray() : _count(0) {}
+    CodeCacheArray() : _count(0) {
+    }
 
     CodeCache* operator[](int index) {
         return _libs[index];

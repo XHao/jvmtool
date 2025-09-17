@@ -34,6 +34,7 @@ class MemorySAModule : public AgentModule {
     MemorySAModule();
     ~MemorySAModule() override;
 
+    jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti) override;
     jint onAttach(std::unordered_map<std::string, std::string>& options) override;
 
     const char* getName() const override {

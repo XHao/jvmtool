@@ -93,8 +93,7 @@ class AgentManager {
     bool inited_{false};
 
     std::unordered_map<std::string, std::string> parseOptions(const char* options);
-    void initializeMetaspaceStructs(JavaVM* java_vm);
-
+    
     AgentManager() = default;
     ~AgentManager();
 
