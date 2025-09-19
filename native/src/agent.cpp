@@ -10,9 +10,9 @@
 #include <unordered_map>
 
 #include "library_loader.h"
-#include "metaspace_structs.h"
 #include "vm/codeCache.h"
 #include "vm/vm.h"
+#include "vm/vmStructs.h"
 
 namespace jvmtool {
 
@@ -151,38 +151,6 @@ std::unordered_map<std::string, std::string> AgentManager::parseOptions(const ch
         pos = next + 1;
     }
 
-    int interval = 0;
-    auto it = result.find("interval");
-    if (it != result.end()) {
-        try {
-            interval = std::atoi(it->second.c_str());
-        } catch (const std::exception& e) {
-            throw std::invalid_argument("Invalid interval parameter: " + std::string(e.what()));
-        }
-        if (interval <= 0) {
-            throw std::invalid_argument("Interval must be a positive integer");
-        }
-    } else {
-        interval = 5;  // default
-    }
-
-    it = result.find("duration");
-    if (it != result.end()) {
-        int duration = 0;
-        try {
-            duration = std::atoi(it->second.c_str());
-        } catch (const std::exception& e) {
-            throw std::invalid_argument("Invalid duration parameter: " + std::string(e.what()));
-        }
-        if (duration <= 0) {
-            throw std::invalid_argument("Duration must be a positive integer");
-        }
-        if (duration < interval) {
-            throw std::invalid_argument("Duration must be greater than interval");
-        }
-    } else {
-        result["duration"] = "30";  // default
-    }
 
     return result;
 }
@@ -207,6 +175,30 @@ AgentModule::MonitorLock::~MonitorLock() {
             logJvmtiError(err, "MonitorLock::~MonitorLock - Failed to exit monitor");
         }
     }
+}
+jint AgentModule::writeReady() {
+    if (!writer_) {
+        writer_ = std::make_unique<MessageWriter>();
+        if (!writer_->initialize("/tmp/jvmtool_" + std::string(getName()) + "_" +
+                                 std::to_string(getpid()) + ".sock")) {
+            writer_ = nullptr;
+            return JNI_ERR;
+        }
+    }
+    return JNI_OK;
+}
+
+bool AgentModule::writeMessage(int fd, Message& msg) {
+    if (!writer_->writeMessage(fd, msg)) {
+        reset();
+        return false;
+    }
+    return true;
+}
+
+void AgentModule::writeAndClose(int fd, Message& msg) {
+    writer_->writeMessage(fd, msg);
+    reset();
 }
 
 // AgentManager implementation
@@ -247,25 +239,24 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
     const std::lock_guard<std::mutex> lock(modules_mutex_);
 
     if (!inited_) {
+        // Initialize VM and VMStructs
         VM::init(java_vm, jvmti);
 
-        CodeCache* libjvm = LibraryLoader::findLibraryByName(
+        const char* lib_name =
 #ifdef __APPLE__
-            "libjvm.dylib"
+            "libjvm.dylib";
 #elif __linux__
-            "libjvm.so"
-#else
-            "libjvm"
+            "libjvm.so";
 #endif
-        );
+
+        // Initialize VMStructs with proper symbol table
+        CodeCache* libjvm = LibraryLoader::findLibraryByName(lib_name);
         if (libjvm != nullptr) {
             VMStructs::init(libjvm);
-        } else {
-            std::cerr << "[Native SA] Warning: failed to construct CodeCache for libjvm; symbol "
-                         "lookups may be limited"
-                      << std::endl;
+            VMStructs::ready();
         }
 
+        // Initialize all registered modules
         for (auto it = modules_.begin(); it != modules_.end();) {
             const auto& [name, module] = *it;
             jvmtiError init_err = module->initialize(java_vm, jvmti);
@@ -281,8 +272,9 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
         inited_ = true;
     }
 
+    // Parse options and find target module
     std::unordered_map<std::string, std::string> opts = parseOptions(options);
-    std::string target_module = opts["analysis"];
+    const std::string& target_module = opts["analysis"];
 
     auto it = modules_.find(target_module);
     if (it != modules_.end() && it->second != nullptr) {

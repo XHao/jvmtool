@@ -60,6 +60,10 @@ class AgentModule {
         state_ = ModuleState::IDLE;
     }
 
+    jint writeReady();
+    bool writeMessage(int fd, Message& msg);
+    void writeAndClose(int fd, Message& msg);
+
     // RAII-style monitor lock helper
     class MonitorLock {
       public:
@@ -85,15 +89,15 @@ class AgentManager {
     static AgentManager& instance();
     void registerModule(AgentModule* module);
     jint onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
-    void cleanup();
 
   private:
     std::unordered_map<std::string, AgentModule*> modules_;
     std::mutex modules_mutex_;
     bool inited_{false};
 
+    void cleanup();
     std::unordered_map<std::string, std::string> parseOptions(const char* options);
-    
+
     AgentManager() = default;
     ~AgentManager();
 

@@ -66,7 +66,8 @@ class StackFrame {
         return unwindCompiled(nm, pc(), sp(), fp());
     }
 
-    bool unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp, uintptr_t& fp);
+    bool unwindStub(instruction_t* entry, const char* name, uintptr_t& pc, uintptr_t& sp,
+                    uintptr_t& fp);
     bool unwindAtomicStub(const void*& pc);
 
     // TODO: this function will be removed once `vm` becomes the default stack walking mode

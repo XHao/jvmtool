@@ -30,13 +30,13 @@
 
 namespace jvmtool {
 
-#ifdef __LP64__
-#  define MMAP_SYSCALL __NR_mmap
-#else
-#  define MMAP_SYSCALL __NR_mmap2
-#endif
+    #ifdef __LP64__
+        #define MMAP_SYSCALL __NR_mmap
+    #else
+        #define MMAP_SYSCALL __NR_mmap2
+    #endif
 
-#define COMM_LEN 16
+    #define COMM_LEN 16
 
 class LinuxThreadList : public ThreadList {
   private:
@@ -89,7 +89,6 @@ class LinuxThreadList : public ThreadList {
     }
 };
 
-
 JitWriteProtection::JitWriteProtection(bool enable) {
     // Not used on Linux
 }
@@ -98,13 +97,11 @@ JitWriteProtection::~JitWriteProtection() {
     // Not used on Linux
 }
 
-
 static SigAction installed_sigaction[64];
 
 const size_t OS::page_size = sysconf(_SC_PAGESIZE);
 const size_t OS::page_mask = OS::page_size - 1;
 const long OS::clock_ticks_per_sec = sysconf(_SC_CLK_TCK);
-
 
 u64 OS::nanotime() {
     struct timespec ts;
@@ -143,7 +140,8 @@ void OS::uninterruptibleSleep(u64 nanos, volatile bool* flag) {
     // Workaround nanosleep bug: https://man7.org/linux/man-pages/man2/nanosleep.2.html#BUGS
     u64 deadline = OS::nanotime() + nanos;
     struct timespec ts = {(time_t)(deadline / 1000000000), (long)(deadline % 1000000000)};
-    while (*flag && clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, &ts) == EINTR);
+    while (*flag && clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, &ts) == EINTR)
+        ;
 }
 
 u64 OS::overrun(siginfo_t* siginfo) {
@@ -163,7 +161,7 @@ int OS::getMaxThreadId() {
     int fd = open("/proc/sys/kernel/pid_max", O_RDONLY);
     if (fd != -1) {
         ssize_t r = read(fd, buf, sizeof(buf) - 1);
-        (void) r;
+        (void)r;
         close(fd);
     }
     return atoi(buf);
@@ -226,7 +224,8 @@ ThreadState OS::threadState(int thread_id) {
 u64 OS::threadCpuTime(int thread_id) {
     clockid_t thread_cpu_clock;
     if (thread_id) {
-        thread_cpu_clock = ((~(unsigned int)(thread_id)) << 3) | 6;  // CPUCLOCK_SCHED | CPUCLOCK_PERTHREAD_MASK
+        thread_cpu_clock =
+            ((~(unsigned int)(thread_id)) << 3) | 6;  // CPUCLOCK_SCHED | CPUCLOCK_PERTHREAD_MASK
     } else {
         thread_cpu_clock = CLOCK_THREAD_CPUTIME_ID;
     }
@@ -290,8 +289,8 @@ SigAction OS::replaceCrashHandler(SigAction action) {
 int OS::getProfilingSignal(int mode) {
     static int preferred_signals[2] = {SIGPROF, SIGVTALRM};
 
-    const u64 allowed_signals =
-        1ULL << SIGPROF | 1ULL << SIGVTALRM | 1ULL << SIGSTKFLT | 1ULL << SIGPWR | -(1ULL << SIGRTMIN);
+    const u64 allowed_signals = 1ULL << SIGPROF | 1ULL << SIGVTALRM | 1ULL << SIGSTKFLT |
+                                1ULL << SIGPWR | -(1ULL << SIGRTMIN);
 
     int& signo = preferred_signals[mode];
     int initial_signo = signo;
@@ -299,8 +298,10 @@ int OS::getProfilingSignal(int mode) {
 
     do {
         struct sigaction sa;
-        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo && sigaction(signo, NULL, &sa) == 0) {
-            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN || sa.sa_sigaction == installed_sigaction[signo]) {
+        if ((allowed_signals & (1ULL << signo)) != 0 && signo != other_signo &&
+            sigaction(signo, NULL, &sa) == 0) {
+            if (sa.sa_handler == SIG_DFL || sa.sa_handler == SIG_IGN ||
+                sa.sa_sigaction == installed_sigaction[signo]) {
                 return signo;
             }
         }
@@ -316,7 +317,8 @@ bool OS::sendSignalToThread(int thread_id, int signo) {
 void* OS::safeAlloc(size_t size) {
     // Naked syscall can be used inside a signal handler.
     // Also, we don't want to catch our own calls when profiling mmap.
-    intptr_t result = syscall(MMAP_SYSCALL, NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    intptr_t result = syscall(MMAP_SYSCALL, NULL, size, PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (result < 0 && result > -4096) {
         return NULL;
     }
@@ -450,7 +452,8 @@ u64 OS::getRamSize() {
 
     if (mem_total == 0) {
         FILE* file = fopen("/proc/meminfo", "r");
-        if (!file) return 0;
+        if (!file)
+            return 0;
 
         char line[1024];
         while (fgets(line, sizeof(line), file)) {
@@ -471,7 +474,8 @@ u64 OS::getSystemBootTime() {
 
     if (system_boot_time == 0) {
         FILE* file = fopen("/proc/stat", "r");
-        if (!file) return 0;
+        if (!file)
+            return 0;
 
         char line[1024];
         while (fgets(line, sizeof(line), file)) {
@@ -490,7 +494,8 @@ u64 OS::getSystemBootTime() {
 int OS::getProcessIds(int* pids, int max_pids) {
     int count = 0;
     DIR* proc = opendir("/proc");
-    if (!proc) return 0;
+    if (!proc)
+        return 0;
 
     for (dirent* de; (de = readdir(proc)) && count < max_pids;) {
         int pid = atoi(de->d_name);
@@ -519,9 +524,11 @@ static bool readProcessCmdline(int pid, ProcessInfo* info) {
     while (r = read(fd, info->cmdline + len, max_read - len)) {
         if (r > 0) {
             len += (size_t)r;
-            if (len == max_read) break;
+            if (len == max_read)
+                break;
         } else {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             close(fd);
             return false;
         }
@@ -552,7 +559,8 @@ static bool readProcessStats(int pid, ProcessInfo* info) {
     snprintf(path, sizeof(path), "/proc/%d/stat", pid);
 
     int fd = open(path, O_RDONLY);
-    if (fd == -1) return false;
+    if (fd == -1)
+        return false;
 
     char buffer[4096];
     size_t len = 0;
@@ -561,16 +569,19 @@ static bool readProcessStats(int pid, ProcessInfo* info) {
     while (r = read(fd, buffer + len, sizeof(buffer) - 1 - len)) {
         if (r > 0) {
             len += (size_t)r;
-            if (len == sizeof(buffer) - 1) break;
+            if (len == sizeof(buffer) - 1)
+                break;
         } else {
-            if (errno == EINTR) continue;
+            if (errno == EINTR)
+                continue;
             close(fd);
             return false;
         }
     }
     close(fd);
 
-    if (len == 0) return false;
+    if (len == 0)
+        return false;
     buffer[len] = '\0';
 
     int parsed_pid, ppid;
@@ -580,23 +591,24 @@ static bool readProcessStats(int pid, ProcessInfo* info) {
     u64 starttime;
     u64 vsize, rss;
     int threads;
-    int parsed =
-        sscanf(buffer,
-               "%d "                    /*  1 pid                                   */
-               "(%15[^)]) "             /*  2 comm (read until ')')                 */
-               "%c %d "                 /*  3 state, 4 ppid                         */
-               "%*d %*d %*d %*d %*u "   /*  5-9 skip                                */
-               "%llu %*u %llu %*u "     /* 10-13 minflt,-,majflt,-                  */
-               "%llu %llu "             /* 14-15 utime, stime                       */
-               "%*d %*d %*d %*d "       /* 16-19 skip                               */
-               "%d "                    /* 20 threads                               */
-               "%*d "                   /* 21 skip                                  */
-               "%llu "                  /* 22 starttime                             */
-               "%llu "                  /* 23 vsize                                 */
-               "%llu",                  /* 24 rss                                   */
-               &parsed_pid, comm, &state, &ppid, &minflt, &majflt, &utime, &stime, &threads, &starttime, &vsize, &rss);
+    int parsed = sscanf(buffer,
+                        "%d "                  /*  1 pid                                   */
+                        "(%15[^)]) "           /*  2 comm (read until ')')                 */
+                        "%c %d "               /*  3 state, 4 ppid                         */
+                        "%*d %*d %*d %*d %*u " /*  5-9 skip                                */
+                        "%llu %*u %llu %*u "   /* 10-13 minflt,-,majflt,-                  */
+                        "%llu %llu "           /* 14-15 utime, stime                       */
+                        "%*d %*d %*d %*d "     /* 16-19 skip                               */
+                        "%d "                  /* 20 threads                               */
+                        "%*d "                 /* 21 skip                                  */
+                        "%llu "                /* 22 starttime                             */
+                        "%llu "                /* 23 vsize                                 */
+                        "%llu",                /* 24 rss                                   */
+                        &parsed_pid, comm, &state, &ppid, &minflt, &majflt, &utime, &stime,
+                        &threads, &starttime, &vsize, &rss);
 
-    if (parsed < 12) return false;
+    if (parsed < 12)
+        return false;
 
     memcpy(info->name, comm, COMM_LEN);
     info->pid = parsed_pid;
@@ -660,7 +672,8 @@ static bool readProcessIO(int pid, ProcessInfo* info) {
     char path[64];
     snprintf(path, sizeof(path), "/proc/%d/io", pid);
     FILE* file = fopen(path, "r");
-    if (!file) return false;
+    if (!file)
+        return false;
 
     int read_count = 0;
     char line[1024];

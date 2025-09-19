@@ -11,7 +11,7 @@ namespace jvmtool {
 static constexpr uint8_t PROTOCOL_VERSION = 1;
 
 // Agent type
-enum class AgentType : uint8_t { NONE = 0, HEAP = 1, GC = 2, THREAD = 3, CLASS = 4 };
+enum class AgentType : uint8_t { NONE = 0, METASPACE = 1, GC = 2, THREAD = 3, CLASS = 4 };
 
 // Message content type
 using ContentType = uint8_t;

@@ -1,18 +1,60 @@
 #pragma once
 
+#include <jni.h>
+#include <jvmti.h>
+#include <sys/types.h>  // for pid_t
+
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <string>
+#include <thread>
+
+#include "agent.h"
+#include "message.h"
 #include "vm/vmStructs.h"
+#include "writer.h"
 
 namespace jvmtool {
 
-/**
- * MetaspaceStructs extends VMStructs with metaspace-related functionality.
- * This class provides access to metaspace object offsets and shared metaspace boundaries.
- */
+struct MemoryOpt {
+    int interval;
+    int duration;
+    std::string type;
+};
+
+class MetaspaceSAModule : public AgentModule {
+  private:
+    std::thread monitor_thread_;
+
+  public:
+    MetaspaceSAModule();
+    ~MetaspaceSAModule() override;
+
+    jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti) override;
+    jint onAttach(std::unordered_map<std::string, std::string>& options) override;
+
+    const char* getName() const override {
+        return "meta";
+    }
+
+    AgentType agentType() const override {
+        return AgentType::METASPACE;
+    }
+
+  private:
+    static MemoryOpt parseOptions(std::unordered_map<std::string, std::string>& options);
+
+    void monitorMemory(const MemoryOpt& opt);
+    bool analyzeMetaspace(int fd);
+    Message collectMetaspaceStatistics() const;
+};
+
 class MetaspaceStructs : public VMStructs {
   protected:
     // Metaspace-related flags
     static bool _has_metaspace_structs;
-    
+
     // MetaspaceObj static fields
     static void** _shared_metaspace_base_addr;
     static void** _shared_metaspace_top_addr;
@@ -55,7 +97,8 @@ class MetaspaceStructs : public VMStructs {
         if (_shared_metaspace_base == nullptr || _shared_metaspace_top == nullptr) {
             return 0;
         }
-        return static_cast<char*>(_shared_metaspace_top) - static_cast<char*>(_shared_metaspace_base);
+        return static_cast<char*>(_shared_metaspace_top) -
+               static_cast<char*>(_shared_metaspace_base);
     }
 
     // Check if shared metaspace is available
@@ -64,4 +107,4 @@ class MetaspaceStructs : public VMStructs {
     }
 };
 
-} // namespace jvmtool
+}  // namespace jvmtool

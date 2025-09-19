@@ -18,10 +18,10 @@ protected:
 
 // Test MessageHeader
 TEST_F(MessageTest, MessageHeaderConstruction) {
-    MessageHeader header(AgentType::HEAP, STATUS, 100);
+    MessageHeader header(AgentType::METASPACE, STATUS, 100);
     
     EXPECT_EQ(header.version, PROTOCOL_VERSION);
-    EXPECT_EQ(header.agent_type, AgentType::HEAP);
+    EXPECT_EQ(header.agent_type, AgentType::METASPACE);
     EXPECT_EQ(header.content_type, STATUS);
     EXPECT_EQ(header.reserved, 0);
     EXPECT_EQ(header.content_length, 100);
@@ -65,9 +65,9 @@ TEST_F(MessageTest, MessageConstructionFromVector) {
 // Test factory methods (using direct constructors)
 TEST_F(MessageTest, CreateStatusMessage) {
     std::string status = "Agent started successfully";
-    Message msg(AgentType::HEAP, STATUS, status);
+    Message msg(AgentType::METASPACE, STATUS, status);
     
-    EXPECT_EQ(msg.getHeader().agent_type, AgentType::HEAP);
+    EXPECT_EQ(msg.getHeader().agent_type, AgentType::METASPACE);
     EXPECT_EQ(msg.getHeader().content_type, STATUS);
     EXPECT_EQ(msg.getContent().size(), status.size());
 }
@@ -83,9 +83,9 @@ TEST_F(MessageTest, CreateErrorMessage) {
 
 TEST_F(MessageTest, CreateDataMessage) {
     std::string data = "Heap usage: 75%";
-    Message msg(AgentType::HEAP, DATA, data);
+    Message msg(AgentType::METASPACE, DATA, data);
     
-    EXPECT_EQ(msg.getHeader().agent_type, AgentType::HEAP);
+    EXPECT_EQ(msg.getHeader().agent_type, AgentType::METASPACE);
     EXPECT_EQ(msg.getHeader().content_type, DATA);
     EXPECT_EQ(msg.getContent().size(), data.size());
 }
@@ -110,7 +110,7 @@ TEST_F(MessageTest, MessageHeaderPackedSize) {
 
 TEST_F(MessageTest, MessageTotalSize) {
     std::string content = "Test content";
-    Message msg(AgentType::HEAP, DATA, content);
+    Message msg(AgentType::METASPACE, DATA, content);
     
     EXPECT_EQ(msg.getTotalSize(), sizeof(MessageHeader) + content.size());
     EXPECT_EQ(msg.getTotalSize(), 8 + content.size()); // 8 bytes header + content

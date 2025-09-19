@@ -1,4 +1,4 @@
-#include "memory.h"
+#include "metaspace.h"
 
 #include <fcntl.h>      // for open()
 #include <sys/types.h>  // for pid_t
@@ -11,15 +11,73 @@
 #include <sstream>
 #include <thread>
 
-#include "metaspace_structs.h"
+#include "common.h"
 
 namespace jvmtool {
+// Static member definitions
+bool MetaspaceStructs::_has_metaspace_structs = false;
+void** MetaspaceStructs::_shared_metaspace_base_addr = nullptr;
+void** MetaspaceStructs::_shared_metaspace_top_addr = nullptr;
+void* MetaspaceStructs::_shared_metaspace_base = nullptr;
+void* MetaspaceStructs::_shared_metaspace_top = nullptr;
 
-// Implementation of MemorySAModule methods
+// Run at agent load time
+void MetaspaceStructs::init(CodeCache* libjvm) {
+    if (libjvm != nullptr) {
+        initMetaspaceOffsets();
+    }
+}
 
-MemorySAModule::MemorySAModule() : AgentModule() {};
+// Run when VM is initialized and JNI is available
+void MetaspaceStructs::ready() {
+    resolveMetaspaceOffsets();
+}
 
-MemoryOpt MemorySAModule::parse(std::unordered_map<std::string, std::string>& options) {
+void MetaspaceStructs::initMetaspaceOffsets() {
+    uintptr_t entry = readSymbol("gHotSpotVMStructs");
+    uintptr_t stride = readSymbol("gHotSpotVMStructEntryArrayStride");
+    uintptr_t type_offset = readSymbol("gHotSpotVMStructEntryTypeNameOffset");
+    uintptr_t field_offset = readSymbol("gHotSpotVMStructEntryFieldNameOffset");
+    uintptr_t address_offset = readSymbol("gHotSpotVMStructEntryAddressOffset");
+
+    if (entry != 0 && stride != 0) {
+        for (;; entry += stride) {
+            const char* type = *(const char**)(entry + type_offset);
+            const char* field = *(const char**)(entry + field_offset);
+            if (type == nullptr || field == nullptr) {
+                break;
+            }
+
+            // Look for MetaspaceObj static fields
+            if (strcmp(type, "MetaspaceObj") == 0) {
+                if (strcmp(field, "_shared_metaspace_base") == 0) {
+                    _shared_metaspace_base_addr = *(void***)(entry + address_offset);
+                } else if (strcmp(field, "_shared_metaspace_top") == 0) {
+                    _shared_metaspace_top_addr = *(void***)(entry + address_offset);
+                }
+            }
+        }
+    }
+}
+
+void MetaspaceStructs::resolveMetaspaceOffsets() {
+    // Resolve shared metaspace boundaries
+    if (_shared_metaspace_base_addr != nullptr) {
+        _shared_metaspace_base = *_shared_metaspace_base_addr;
+    }
+
+    if (_shared_metaspace_top_addr != nullptr) {
+        _shared_metaspace_top = *_shared_metaspace_top_addr;
+    }
+
+    // Check if we have valid metaspace structures
+    _has_metaspace_structs =
+        (_shared_metaspace_base_addr != nullptr && _shared_metaspace_top_addr != nullptr);
+}
+
+MetaspaceSAModule::MetaspaceSAModule() : AgentModule() {};
+
+MemoryOpt MetaspaceSAModule::parseOptions(std::unordered_map<std::string, std::string>& options) {
     MemoryOpt opt;
 
     opt.type = options["task_type"];
@@ -32,13 +90,13 @@ MemoryOpt MemorySAModule::parse(std::unordered_map<std::string, std::string>& op
                                     ". Supported types: metaspace, heap, gc, all");
     }
 
-    opt.interval = std::atoi(options["interval"].c_str());
-    opt.duration = std::atoi(options["duration"].c_str());
+    opt.interval = parseInt(options, "interval", 5);
+    opt.duration = parseInt(options, "duration", 30);
 
     return opt;
 }
 
-jvmtiError MemorySAModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
+jvmtiError MetaspaceSAModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
     jvmtiError init_err = AgentModule::initialize(java_vm, jvmti);
     if (init_err != JVMTI_ERROR_NONE) {
         return init_err;
@@ -47,13 +105,9 @@ jvmtiError MemorySAModule::initialize(JavaVM* java_vm, jvmtiEnv* jvmti) {
     MetaspaceStructs::ready();
 }
 
-jint MemorySAModule::onAttach(std::unordered_map<std::string, std::string>& options) {
-    if (!writer_) {
-        writer_ = std::make_unique<MessageWriter>();
-        if (!writer_->initialize("/tmp/jvmtool_memory_" + std::to_string(getpid()) + ".sock")) {
-            writer_ = nullptr;
-            return JNI_ERR;
-        }
+jint MetaspaceSAModule::onAttach(std::unordered_map<std::string, std::string>& options) {
+    if (writeReady() != JNI_OK) {
+        return JNI_ERR;
     }
 
     if (state_ == ModuleState::ANALYZING) {
@@ -61,7 +115,7 @@ jint MemorySAModule::onAttach(std::unordered_map<std::string, std::string>& opti
     }
 
     try {
-        monitor_thread_ = std::thread(&MemorySAModule::monitorMemory, this, parse(options));
+        monitor_thread_ = std::thread(&MetaspaceSAModule::monitorMemory, this, parseOptions(options));
         state_ = ModuleState::ANALYZING;
         return JNI_OK;
     } catch (...) {
@@ -69,7 +123,7 @@ jint MemorySAModule::onAttach(std::unordered_map<std::string, std::string>& opti
     return JNI_ERR;
 }
 
-MemorySAModule::~MemorySAModule() {
+MetaspaceSAModule::~MetaspaceSAModule() {
     try {
         if (monitor_thread_.joinable()) {
             monitor_thread_.join();
@@ -78,20 +132,7 @@ MemorySAModule::~MemorySAModule() {
     }
 }
 
-bool MemorySAModule::writeMessage(int fd, Message& msg) {
-    if (!writer_->writeMessage(fd, msg)) {
-        reset();
-        return false;
-    }
-    return true;
-}
-
-void MemorySAModule::writeAndClose(int fd, Message& msg) {
-    writer_->writeMessage(fd, msg);
-    reset();
-}
-
-void MemorySAModule::monitorMemory(const MemoryOpt& opt) {
+void MetaspaceSAModule::monitorMemory(const MemoryOpt& opt) {
     try {
         auto fd = ClosableFd(writer_->waitForClient());
 
@@ -118,7 +159,7 @@ void MemorySAModule::monitorMemory(const MemoryOpt& opt) {
     }
 }
 
-bool MemorySAModule::analyzeMetaspace(int fd) {
+bool MetaspaceSAModule::analyzeMetaspace(int fd) {
     try {
         const Message header(agentType(), DATA, "[Native SA] === Metaspace Analysis ===");
         if (!writer_->writeMessage(fd, header)) {
@@ -148,7 +189,7 @@ bool MemorySAModule::analyzeMetaspace(int fd) {
     return false;
 }
 
-Message MemorySAModule::collectMetaspaceStatistics() const {
+Message MetaspaceSAModule::collectMetaspaceStatistics() const {
     std::stringstream ss;
 
     ss << "[Native SA] Metaspace Statistics:\n";
@@ -190,7 +231,7 @@ extern "C" {
 // Auto-register when library is loaded (Unix/Linux)
 static __attribute__((constructor)) void initModule() {
     try {
-        auto memoryModule = new MemorySAModule();
+        auto memoryModule = new MetaspaceSAModule();
         AgentManager::instance().registerModule(memoryModule);
         std::cerr << "[Native SA] Memory SA module registered successfully" << std::endl;
     } catch (const std::exception& e) {
