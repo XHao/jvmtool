@@ -228,7 +228,6 @@ Message MetaspaceSAModule::collectMetaspaceStatistics() const {
 
 extern "C" {
 
-// Auto-register when library is loaded (Unix/Linux)
 static __attribute__((constructor)) void initModule() {
     try {
         auto memoryModule = new MetaspaceSAModule();

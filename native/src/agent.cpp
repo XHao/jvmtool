@@ -203,18 +203,30 @@ void AgentModule::writeAndClose(int fd, Message& msg) {
 
 // AgentManager implementation
 AgentManager& AgentManager::instance() {
-    static AgentManager mgr;
-    return mgr;
+    static AgentManager* mgr = nullptr;
+    static std::once_flag initialized;
+    
+    std::call_once(initialized, []() {
+        mgr = new AgentManager();
+    });
+    
+    return *mgr;
 }
 
 AgentManager::~AgentManager() {
-    cleanup();
+    try {
+        cleanup();
+    } catch (...) {
+    }
 }
 
 void AgentManager::cleanup() {
     const std::lock_guard<std::mutex> lock(modules_mutex_);
     for (auto& [name, module] : modules_) {
-        delete module;
+        try {
+            delete module;
+        } catch (...) {
+        }
     }
     modules_.clear();
 }

@@ -17,17 +17,14 @@ bool MessageWriter::initialize(const std::string& path) {
     close();
     path_ = path;
 
-    // Unix Socket implementation
     socket_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket_fd_ == -1) {
         last_error_ = "Failed to create socket: " + std::string(strerror(errno));
         return false;
     }
 
-    // Remove existing socket file if it exists
     unlink(path.c_str());
 
-    // Bind socket
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -48,7 +45,6 @@ bool MessageWriter::initialize(const std::string& path) {
         return false;
     }
 
-    // Listen for connections
     if (listen(socket_fd_, 1) == -1) {
         last_error_ = "Failed to listen on socket: " + std::string(strerror(errno));
         ::close(socket_fd_);
@@ -66,7 +62,6 @@ int MessageWriter::waitForClient() {
         return -1;
     }
 
-    // Accept new client connection
     int fd = accept(socket_fd_, nullptr, nullptr);
     if (fd == -1) {
         last_error_ = "Failed to accept connection: " + std::string(strerror(errno));
@@ -98,7 +93,6 @@ bool MessageWriter::writeMessage(int fd, const Message& message) {
     ssize_t bytes_written = write(fd, serialized.data(), serialized.size());
 
     if (bytes_written == -1) {
-        // Connection might be broken, disconnect client
         last_error_ = "Failed to write to client: " + std::string(strerror(errno));
         return false;
     }
@@ -112,7 +106,6 @@ bool MessageWriter::writeMessage(int fd, const Message& message) {
 }
 
 void MessageWriter::close() {
-    // Close server socket
     if (socket_fd_ != -1) {
         ::close(socket_fd_);
         socket_fd_ = -1;
