@@ -19,12 +19,12 @@ struct JvmtiErrorInfo {
     constexpr JvmtiErrorInfo(const char* n, const char* d) : name(n), description(d) {}
 };
 
-/**
- * Module state enumeration - common to all agent modules
- */
-enum class ModuleState {
-    IDLE,      // Module is idle, ready for new analysis
-    ANALYZING  // Module is currently performing analysis
+enum class ModuleState { IDLE, ANALYZING };
+
+struct TaskOpt {
+    int interval;
+    int duration;
+    std::string type;
 };
 
 class AgentModule {
@@ -34,7 +34,7 @@ class AgentModule {
     virtual jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti);
     [[nodiscard]] bool isInitialized() const;
 
-    virtual jint onAttach(std::unordered_map<std::string, std::string>&) = 0;
+    virtual jint onAttach(const TaskOpt& opt) = 0;
 
     virtual const char* getName() const = 0;
 
@@ -87,16 +87,15 @@ class AgentModule {
 class AgentManager {
   public:
     static AgentManager& instance();
-    void registerModule(AgentModule* module);
+  AgentModule* registerModule(std::unique_ptr<AgentModule> module);
     jint onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
 
   private:
-    std::unordered_map<std::string, AgentModule*> modules_;
+  std::unordered_map<std::string, std::unique_ptr<AgentModule>> modules_;
     std::mutex modules_mutex_;
     bool inited_{false};
 
-    void cleanup();
-    std::unordered_map<std::string, std::string> parseOptions(const char* options);
+  void cleanup();
 
     AgentManager() = default;
     ~AgentManager();

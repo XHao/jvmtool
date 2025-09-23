@@ -9,7 +9,7 @@ int parseInt(const std::unordered_map<std::string, std::string>& options, const 
     auto it = options.find(key);
     if (it != options.end() && !it->second.empty()) {
         try {
-            int value = std::stoi(it->second);
+            const int value = std::stoi(it->second);
             if (value <= 0) {
                 throw std::invalid_argument("must be a positive integer");
             }
@@ -20,6 +20,23 @@ int parseInt(const std::unordered_map<std::string, std::string>& options, const 
         }
     }
     return defaultValue;
+}
+
+std::string parseString(const std::unordered_map<std::string, std::string>& options,
+                        const std::string& key, const std::string& defaultValue, bool allowEmpty) {
+    auto it = options.find(key);
+    if (it == options.end()) {
+        return defaultValue;
+    }
+
+    const std::string& value = it->second;
+    if (value.empty()) {
+        if (!allowEmpty) {
+            throw std::invalid_argument("Invalid " + key + " parameter: value must not be empty");
+        }
+        return defaultValue;
+    }
+    return value;
 }
 
 }  // namespace jvmtool

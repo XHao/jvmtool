@@ -22,8 +22,9 @@ class MachOParser {
         : _cache(cache), _header(header), _slide(slide) {}
 
     bool parse() {
-        if (_header == nullptr)
+        if (_header == nullptr) {
             return false;
+        }
     #if defined(MH_MAGIC_64)
         if (_header->magic != MH_MAGIC_64 && _header->magic != MH_CIGAM_64) {
             return false;  // only 64-bit
@@ -38,18 +39,26 @@ class MachOParser {
                 case LC_SEGMENT_64: {
                     const segment_command_64* seg = reinterpret_cast<const segment_command_64*>(lc);
                     if (std::strcmp(seg->segname, "__TEXT") == 0) {
-                        _cache->updateBounds(_header, (const char*)_header + seg->vmsize);
+                        _cache->updateBounds(_header,
+                                             reinterpret_cast<const char*>(_header) + seg->vmsize);
                         _cache->setTextBase(reinterpret_cast<const char*>(_slide));
                     } else if (std::strcmp(seg->segname, "__LINKEDIT") == 0) {
-                        link_base = (const char*)(_slide + seg->vmaddr - seg->fileoff);
+                        link_base =
+                            reinterpret_cast<const char*>(_slide + seg->vmaddr - seg->fileoff);
                     }
                     break;
                 }
-                case LC_SYMTAB:
+                case LC_SYMTAB: {
                     symtab = reinterpret_cast<const symtab_command*>(lc);
                     break;
+                }
+                default: {
+                    // Other load commands not needed for our lightweight symbol extraction.
+                    break;
+                }
             }
-            lc = reinterpret_cast<const load_command*>((const char*)lc + lc->cmdsize);
+            lc = reinterpret_cast<const load_command*>(reinterpret_cast<const char*>(lc) +
+                                                       lc->cmdsize);
         }
 
         if (symtab && link_base) {
@@ -68,11 +77,14 @@ class MachOParser {
             const nlist_64& n = symbols[i];
             if ((n.n_type & 0x0e) == 0x0e && n.n_value != 0) {  // external & defined
                 const char* name = strtab + n.n_un.n_strx;
-                if (name == nullptr || *name == '\0')
+                if (name == nullptr || *name == '\0') {
                     continue;
-                if (name[0] == '_')
+                }
+                if (name[0] == '_') {
                     name++;  // strip leading underscore
-                const void* addr = (const void*)((char*)_slide + n.n_value);
+                }
+                const void* addr = reinterpret_cast<const void*>(
+                    reinterpret_cast<const char*>(_slide) + n.n_value);
                 _cache->add(addr, 0, name);
             }
         }
@@ -80,21 +92,24 @@ class MachOParser {
 };
 
 CodeCache* LibraryLoader::findLibraryByName(const char* libName) {
-    if (libName == nullptr)
+    if (libName == nullptr) {
         return nullptr;
+    }
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) {
         const char* image_path = _dyld_get_image_name(i);
-        if (!image_path)
+        if (!image_path) {
             continue;
+        }
         // extract basename
         const char* base = std::strrchr(image_path, '/');
         base = base ? base + 1 : image_path;
         if (std::strcmp(base, libName) == 0) {
             const mach_header* header = _dyld_get_image_header(i);
             intptr_t slide = _dyld_get_image_vmaddr_slide(i);
-            CodeCache* cache =
-                new CodeCache(base, (short)i, NO_MIN_ADDRESS, NO_MAX_ADDRESS, (const char*)slide);
+            // Ownership: returned raw pointer managed by caller (AgentManager / VMStructs init).
+            CodeCache* cache = new CodeCache(base, static_cast<short>(i), NO_MIN_ADDRESS,
+                                             NO_MAX_ADDRESS, reinterpret_cast<const char*>(slide));
             MachOParser parser(cache, header, slide);
             if (!parser.parse()) {
                 delete cache;

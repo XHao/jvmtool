@@ -7,7 +7,45 @@
 
 namespace jvmtool {
 
-MessageWriter::MessageWriter() : is_ready_(false), socket_fd_(-1) {}
+namespace {
+std::string safeStrerror(int errnum) {
+#if ((defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200112L) || defined(__APPLE__)) && \
+    !defined(__GLIBC__)
+    char buf[256];
+    if (strerror_r(errnum, buf, sizeof(buf)) == 0) {
+        return {buf};
+    }
+    return std::string("Unknown error ") + std::to_string(errnum);
+#elif defined(__GLIBC__)
+    // GNU variant returns char*
+    char buf[256];
+    char* msg = strerror_r(errnum, buf, sizeof(buf));
+    if (msg != nullptr) {
+        return std::string(msg);
+    }
+    return std::string("Unknown error ") + std::to_string(errnum);
+#else
+    return std::string(strerror(errnum));
+#endif
+}
+
+inline bool fillUnixAddr(struct sockaddr_un& addr, const std::string& path, std::string& err) {
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    if (path.size() >= sizeof(addr.sun_path)) {
+        err = "Socket path too long";
+        return false;
+    }
+    const int written = std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.c_str());
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(addr.sun_path)) {
+        err = "Failed to set socket path";
+        return false;
+    }
+    return true;
+}
+}  // anonymous namespace
+
+MessageWriter::MessageWriter() : socket_fd_(-1) {}
 
 MessageWriter::~MessageWriter() {
     close();
@@ -19,40 +57,33 @@ bool MessageWriter::initialize(const std::string& path) {
 
     socket_fd_ = socket(AF_UNIX, SOCK_STREAM, 0);
     if (socket_fd_ == -1) {
-        last_error_ = "Failed to create socket: " + std::string(strerror(errno));
+        last_error_ = "Failed to create socket: " + safeStrerror(errno);
         return false;
     }
 
     unlink(path.c_str());
 
     struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-
-    if (path.length() >= sizeof(addr.sun_path)) {
-        last_error_ = "Socket path too long";
+    if (!fillUnixAddr(addr, path, last_error_)) {
         ::close(socket_fd_);
         socket_fd_ = -1;
         return false;
     }
 
-    strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
-
-    if (bind(socket_fd_, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-        last_error_ = "Failed to bind socket: " + std::string(strerror(errno));
+    if (bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == -1) {
+        last_error_ = "Failed to bind socket: " + safeStrerror(errno);
         ::close(socket_fd_);
         socket_fd_ = -1;
         return false;
     }
 
     if (listen(socket_fd_, 1) == -1) {
-        last_error_ = "Failed to listen on socket: " + std::string(strerror(errno));
+        last_error_ = "Failed to listen on socket: " + safeStrerror(errno);
         ::close(socket_fd_);
         socket_fd_ = -1;
         return false;
     }
 
-    is_ready_ = true;
     return true;
 }
 
@@ -62,16 +93,16 @@ int MessageWriter::waitForClient() {
         return -1;
     }
 
-    int fd = accept(socket_fd_, nullptr, nullptr);
+    const int fd = accept(socket_fd_, nullptr, nullptr);
     if (fd == -1) {
-        last_error_ = "Failed to accept connection: " + std::string(strerror(errno));
+        last_error_ = "Failed to accept connection: " + safeStrerror(errno);
         return -1;
     }
 
     return fd;
 }
 
-void MessageWriter::disconnectClient(int fd) {
+/* static */ void MessageWriter::disconnectClient(int fd) {
     if (fd != -1) {
         ::close(fd);
     }
@@ -90,10 +121,10 @@ bool MessageWriter::writeMessage(int fd, const Message& message) {
 
     auto serialized = message.serialize();
 
-    ssize_t bytes_written = write(fd, serialized.data(), serialized.size());
+    const ssize_t bytes_written = write(fd, serialized.data(), serialized.size());
 
     if (bytes_written == -1) {
-        last_error_ = "Failed to write to client: " + std::string(strerror(errno));
+        last_error_ = "Failed to write to client: " + safeStrerror(errno);
         return false;
     }
 
@@ -113,11 +144,10 @@ void MessageWriter::close() {
             unlink(path_.c_str());
         }
     }
-    is_ready_ = false;
 }
 
 bool MessageWriter::isReady() const {
-    return is_ready_ && socket_fd_ != -1;
+    return socket_fd_ != -1;
 }
 
 std::string MessageWriter::getLastError() const {

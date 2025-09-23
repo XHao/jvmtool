@@ -17,13 +17,10 @@ class MessageWriter {
     MessageWriter();
     ~MessageWriter();
 
-    // path: Unix socket path
     bool initialize(const std::string& path);
 
-    // Wait for client connection (blocking call)
     int waitForClient();
 
-    // Disconnect current client
     void disconnectClient(int fd);
 
     bool writeMessage(int fd, const Message& message);
@@ -32,7 +29,6 @@ class MessageWriter {
 
     [[nodiscard]] bool isReady() const;
 
-    // Get last error message
     [[nodiscard]] std::string getLastError() const;
 
     // Deleted copy constructor and assignment operator (public for better error messages)
@@ -42,9 +38,7 @@ class MessageWriter {
   private:
     std::string path_;
     std::string last_error_;
-    bool is_ready_;
-
-    int socket_fd_;  // Server socket
+  int socket_fd_;
 };
 
 class ClosableFd {

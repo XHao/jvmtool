@@ -9,12 +9,38 @@
 #include <string>
 #include <unordered_map>
 
+#include "common.h"
 #include "library_loader.h"
 #include "vm/codeCache.h"
 #include "vm/vm.h"
 #include "vm/vmStructs.h"
 
 namespace jvmtool {
+
+namespace {
+std::unordered_map<std::string, std::string> parseRawOptions(const char* options) {
+    std::unordered_map<std::string, std::string> raw;
+    if (options == nullptr) {
+        return raw;
+    }
+    const std::string opts(options);
+    size_t pos = 0;
+    while (pos < opts.length()) {
+        size_t next = opts.find(',', pos);
+        if (next == std::string::npos) {
+            next = opts.length();
+        }
+        const std::string param = opts.substr(pos, next - pos);
+        const size_t eq = param.find('=');
+        if (eq != std::string::npos) {
+            const std::string key = param.substr(0, eq);
+            const std::string value = param.substr(eq + 1);
+            raw[key] = value;
+        }
+        pos = next + 1;
+    }
+    return raw;
+}
 
 constexpr JvmtiErrorInfo getJvmtiErrorInfo(jvmtiError error) {
     switch (error) {
@@ -80,6 +106,7 @@ constexpr JvmtiErrorInfo getJvmtiErrorInfo(jvmtiError error) {
             return {"UNKNOWN_ERROR", "Undefined JVMTI error"};
     }
 }
+}  // anonymous namespace
 
 void logJvmtiError(jvmtiError error, const char* context) {
     if (error == JVMTI_ERROR_NONE) {
@@ -88,8 +115,9 @@ void logJvmtiError(jvmtiError error, const char* context) {
 
     const auto [error_name, error_description] = getJvmtiErrorInfo(error);
 
-    std::cerr << "[JVMTI Error] " << error_name << " in " << (context ? context : "Unknown context")
-              << ": " << error_description << " (" << error << ")" << std::endl;
+    const char* ctx = (context != nullptr) ? context : "Unknown context";
+    std::cerr << "[JVMTI Error] " << error_name << " in " << ctx << ": " << error_description
+              << " (" << error << ")\n";
 }
 
 AgentModule::~AgentModule() {
@@ -99,7 +127,7 @@ AgentModule::~AgentModule() {
         }
 
         if (jvmti_ != nullptr && module_monitor_ != nullptr) {
-            jvmtiError err = jvmti_->DestroyRawMonitor(module_monitor_);
+            const jvmtiError err = jvmti_->DestroyRawMonitor(module_monitor_);
             if (err != JVMTI_ERROR_NONE) {
                 logJvmtiError(err, "AgentModule::~AgentModule - Failed to destroy monitor");
             }
@@ -123,43 +151,21 @@ bool AgentModule::isInitialized() const {
     return jvmti_ != nullptr && vm_ != nullptr && module_monitor_ != nullptr;
 }
 
-std::unordered_map<std::string, std::string> AgentManager::parseOptions(const char* options) {
-    std::unordered_map<std::string, std::string> result;
-
-    if (options == nullptr) {
-        return result;
-    }
-
-    std::string opts(options);
-    size_t pos = 0;
-
-    while (pos < opts.length()) {
-        size_t next = opts.find(',', pos);
-        if (next == std::string::npos) {
-            next = opts.length();
-        }
-
-        std::string param = opts.substr(pos, next - pos);
-        size_t eq = param.find('=');
-
-        if (eq != std::string::npos) {
-            std::string key = param.substr(0, eq);
-            std::string value = param.substr(eq + 1);
-            result[key] = value;
-        }
-
-        pos = next + 1;
-    }
-
-
-    return result;
+namespace {
+TaskOpt parseOptions(const char* options) {
+    TaskOpt opt{};
+    const auto raw = parseRawOptions(options);
+    opt.type = parseString(raw, "task_type", "", false);
+    opt.interval = parseInt(raw, "interval", 5);
+    opt.duration = parseInt(raw, "duration", 30);
+    return opt;
 }
+}  // anonymous namespace
 
-// AgentModule::MonitorLock implementation
 AgentModule::MonitorLock::MonitorLock(AgentModule* module)
     : jvmti_(module->jvmti_), monitor_(module->module_monitor_), is_locked_(false) {
     if (jvmti_ != nullptr && monitor_ != nullptr) {
-        jvmtiError err = jvmti_->RawMonitorEnter(monitor_);
+        const jvmtiError err = jvmti_->RawMonitorEnter(monitor_);
         if (err == JVMTI_ERROR_NONE) {
             is_locked_ = true;
         } else {
@@ -170,7 +176,7 @@ AgentModule::MonitorLock::MonitorLock(AgentModule* module)
 
 AgentModule::MonitorLock::~MonitorLock() {
     if (is_locked_ && jvmti_ != nullptr && monitor_ != nullptr) {
-        jvmtiError err = jvmti_->RawMonitorExit(monitor_);
+        const jvmtiError err = jvmti_->RawMonitorExit(monitor_);
         if (err != JVMTI_ERROR_NONE) {
             logJvmtiError(err, "MonitorLock::~MonitorLock - Failed to exit monitor");
         }
@@ -201,15 +207,12 @@ void AgentModule::writeAndClose(int fd, Message& msg) {
     reset();
 }
 
-// AgentManager implementation
 AgentManager& AgentManager::instance() {
     static AgentManager* mgr = nullptr;
     static std::once_flag initialized;
-    
-    std::call_once(initialized, []() {
-        mgr = new AgentManager();
-    });
-    
+
+    std::call_once(initialized, []() { mgr = new AgentManager(); });
+
     return *mgr;
 }
 
@@ -221,30 +224,25 @@ AgentManager::~AgentManager() {
 }
 
 void AgentManager::cleanup() {
-    const std::lock_guard<std::mutex> lock(modules_mutex_);
-    for (auto& [name, module] : modules_) {
-        try {
-            delete module;
-        } catch (...) {
-        }
-    }
+    const std::lock_guard lock(modules_mutex_);
     modules_.clear();
 }
 
-void AgentManager::registerModule(AgentModule* module) {
-    if (module == nullptr) {
-        return;
+AgentModule* AgentManager::registerModule(std::unique_ptr<AgentModule> module) {
+    if (!module) {
+        return nullptr;
     }
-
-    const std::lock_guard<std::mutex> lock(modules_mutex_);
-    const std::string module_name = module->getName();
-
-    if (modules_.find(module_name) == modules_.end()) {
-        modules_[module_name] = module;
-    } else {
+    const std::lock_guard lock(modules_mutex_);
+    const std::string name = module->getName();
+    auto it = modules_.find(name);
+    if (it != modules_.end()) {
         logJvmtiError(JVMTI_ERROR_DUPLICATE,
                       "AgentManager::registerModule - Duplicate module registered");
+        return it->second.get();
     }
+    AgentModule* raw = module.get();
+    modules_.emplace(name, std::move(module));
+    return raw;
 }
 
 jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options) {
@@ -270,8 +268,9 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
 
         // Initialize all registered modules
         for (auto it = modules_.begin(); it != modules_.end();) {
-            const auto& [name, module] = *it;
-            jvmtiError init_err = module->initialize(java_vm, jvmti);
+            const std::string& name = it->first;
+            auto& modulePtr = it->second;
+            const jvmtiError init_err = modulePtr->initialize(java_vm, jvmti);
             if (init_err != JVMTI_ERROR_NONE) {
                 logJvmtiError(init_err, ("AgentModule::initialize - Module '" + name +
                                          "' initialization failed")
@@ -285,13 +284,13 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
     }
 
     // Parse options and find target module
-    std::unordered_map<std::string, std::string> opts = parseOptions(options);
-    const std::string& target_module = opts["analysis"];
+    auto rawOpts = parseRawOptions(options);
+    const std::string target_module = rawOpts["analysis"];
 
     auto it = modules_.find(target_module);
-    if (it != modules_.end() && it->second != nullptr) {
-        const auto& [_, module] = *it;
-        return module->onAttach(opts);
+    if (it != modules_.end() && it->second) {
+        const TaskOpt taskOpt = parseOptions(options);
+        return it->second->onAttach(taskOpt);
     }
 
     logJvmtiError(

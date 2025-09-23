@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.10)
 project(jvmtool_native_agent LANGUAGES C CXX)
 
+# -----------------------------------------------------------------------------
+# Global language standard & policies
+# -----------------------------------------------------------------------------
+# Prefer setting these globally so every target (including tests, tools, etc.)
+# is consistently built under the same C++ standard unless explicitly overridden.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF) # Avoid gnu++17 – ensures portability / cleaner diagnostics
+
+# (Alternative modern form would be: target_compile_features(<tgt> PUBLIC cxx_std_17)
+# We still apply that per main target below for clarity / IDE integration.)
+
 # Generate compile_commands.json for VS Code
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -36,12 +48,21 @@ add_library(jvmtool-agent SHARED
     ${AGENT_SOURCES}
 )
 
-# Coverage configuration
+# -----------------------------------------------------------------------------
+# Configuration options (declare BEFORE usage)
+# -----------------------------------------------------------------------------
+option(ENABLE_CLANG_FORMAT "Enable clang-format" ON)
+option(ENABLE_CLANG_TIDY "Enable clang-tidy" ON)
+option(ENABLE_CPPCHECK "Enable cppcheck" ON)
+option(ENABLE_COVERAGE "Enable code coverage" OFF)
+option(BUILD_TESTS "Build unit tests" ON)
+
+# Coverage configuration (after options declared)
 if(ENABLE_COVERAGE)
     message(STATUS "Coverage enabled")
     target_compile_options(jvmtool-agent PRIVATE --coverage -fprofile-arcs -ftest-coverage)
     target_link_libraries(jvmtool-agent PRIVATE --coverage)
-    
+
     # Add coverage flags to global compile options for test targets
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
@@ -51,15 +72,14 @@ endif()
 set_target_properties(jvmtool-agent PROPERTIES
     OUTPUT_NAME "jvmtool-agent"
     PREFIX ""
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
 )
 
-# Code formatting and linting tools
-option(ENABLE_CLANG_FORMAT "Enable clang-format" ON)
-option(ENABLE_CLANG_TIDY "Enable clang-tidy" ON)
-option(ENABLE_CPPCHECK "Enable cppcheck" ON)
-option(ENABLE_COVERAGE "Enable code coverage" OFF)
+# Explicitly declare required features (IDE friendliness & clarity)
+target_compile_features(jvmtool-agent PUBLIC cxx_std_17)
+
+# -----------------------------------------------------------------------------
+# Code formatting and static analysis tooling
+# -----------------------------------------------------------------------------
 
 # Find clang-format
 if(ENABLE_CLANG_FORMAT)
@@ -118,16 +138,16 @@ if(ENABLE_CLANG_TIDY)
             list(APPEND TIDY_INCLUDE_FLAGS "-I${include_dir}")
         endforeach()
         
-        add_custom_target(tidy
-            COMMAND ${CLANG_TIDY_EXE} 
-                    ${AGENT_HEADERS} 
-                    ${AGENT_SOURCES}
-                    ${MODULES_SOURCES}
-                    --config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy
-                    -- -I${CMAKE_CURRENT_SOURCE_DIR}/include ${TIDY_INCLUDE_FLAGS} -pthread -xc++
-            COMMENT "Running clang-tidy on project files only"
-            VERBATIM
-        )
+    add_custom_target(tidy
+        COMMAND ${CLANG_TIDY_EXE}
+            ${AGENT_HEADERS}
+            ${AGENT_SOURCES}
+            ${MODULES_SOURCES}
+            --config-file=${CMAKE_CURRENT_SOURCE_DIR}/.clang-tidy
+            -- -I${CMAKE_CURRENT_SOURCE_DIR}/include ${TIDY_INCLUDE_FLAGS} -pthread -std=c++17 -xc++
+        COMMENT "Running clang-tidy on project files only (C++17 enforced)"
+        VERBATIM
+    )
     else()
         message(WARNING "clang-tidy not found")
     endif()
@@ -195,7 +215,6 @@ endif()
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
 
 
-option(BUILD_TESTS "Build unit tests" ON)
 if(BUILD_TESTS)
     enable_testing()
     include(FetchContent)
@@ -209,5 +228,7 @@ if(BUILD_TESTS)
     add_executable(jvmtool-agent-test ${TEST_SOURCES})
     target_include_directories(jvmtool-agent-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
     target_link_libraries(jvmtool-agent-test PRIVATE jvmtool-agent gtest gtest_main)
+    # Ensure test target also explicitly advertises C++17 (even though global is set)
+    target_compile_features(jvmtool-agent-test PRIVATE cxx_std_17)
     add_test(NAME jvmtool-agent-test COMMAND jvmtool-agent-test)
 endif()

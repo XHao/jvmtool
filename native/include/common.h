@@ -8,4 +8,8 @@ namespace jvmtool {
 int parseInt(const std::unordered_map<std::string, std::string>& options, const std::string& key,
              int defaultValue);
 
+std::string parseString(const std::unordered_map<std::string, std::string>& options,
+                        const std::string& key, const std::string& defaultValue = "",
+                        bool allowEmpty = true);
+
 }  // namespace jvmtool

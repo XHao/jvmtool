@@ -17,12 +17,6 @@
 
 namespace jvmtool {
 
-struct MemoryOpt {
-    int interval;
-    int duration;
-    std::string type;
-};
-
 class MetaspaceSAModule : public AgentModule {
   private:
     std::thread monitor_thread_;
@@ -32,7 +26,7 @@ class MetaspaceSAModule : public AgentModule {
     ~MetaspaceSAModule() override;
 
     jvmtiError initialize(JavaVM* java_vm, jvmtiEnv* jvmti) override;
-    jint onAttach(std::unordered_map<std::string, std::string>& options) override;
+    jint onAttach(const TaskOpt& opt) override;
 
     const char* getName() const override {
         return "meta";
@@ -43,9 +37,7 @@ class MetaspaceSAModule : public AgentModule {
     }
 
   private:
-    static MemoryOpt parseOptions(std::unordered_map<std::string, std::string>& options);
-
-    void monitorMemory(const MemoryOpt& opt);
+    void monitor(const TaskOpt& opt);
     bool analyzeMetaspace(int fd);
     Message collectMetaspaceStatistics() const;
 };

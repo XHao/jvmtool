@@ -24,29 +24,23 @@ public:
 // Test AgentModule implementation for testing
 class TestAgentModule : public AgentModule {
 public:
-    TestAgentModule() : AgentModule() {}
-    
-    jint onAttach(std::unordered_map<std::string, std::string>& options) override {
+    TestAgentModule() = default;
+
+    jint onAttach(const TaskOpt& opt) override {
         attach_called_ = true;
-        received_options_ = options;
+        received_opt_ = opt;
         return 0;
     }
-    
-    const char* getName() const override {
-        return "test";
-    }
-    
-    AgentType agentType() const override {
-        return AgentType::METASPACE;
-    }
-    
-    // Expose protected members for testing
+
+    const char* getName() const override { return "test"; }
+    AgentType agentType() const override { return AgentType::METASPACE; }
+
     ModuleState getState() const { return state_; }
     void setState(ModuleState state) { state_ = state; }
     void resetState() { state_ = ModuleState::IDLE; }
-    
+
     bool attach_called_ = false;
-    std::unordered_map<std::string, std::string> received_options_;
+    TaskOpt received_opt_{};
 };
 
 class AgentModuleTest : public ::testing::Test {
@@ -70,17 +64,13 @@ TEST_F(AgentModuleTest, InitialState) {
 }
 
 TEST_F(AgentModuleTest, OnAttachCalledCorrectly) {
-    std::unordered_map<std::string, std::string> options;
-    options["param1"] = "value1";
-    options["param2"] = "value2";
-    
-    jint result = module_->onAttach(options);
-    
+    TaskOpt opt{2, 10, "metaspace"};
+    jint result = module_->onAttach(opt);
     EXPECT_EQ(result, 0);
     EXPECT_TRUE(module_->attach_called_);
-    EXPECT_EQ(module_->received_options_.size(), 2);
-    EXPECT_EQ(module_->received_options_["param1"], "value1");
-    EXPECT_EQ(module_->received_options_["param2"], "value2");
+    EXPECT_EQ(module_->received_opt_.interval, 2);
+    EXPECT_EQ(module_->received_opt_.duration, 10);
+    EXPECT_EQ(module_->received_opt_.type, "metaspace");
 }
 
 TEST_F(AgentModuleTest, StateManagement) {
@@ -118,7 +108,12 @@ TEST_F(AgentManagerTest, Singleton) {
 
 TEST_F(AgentManagerTest, RegisterModule) {
     // Test that module can be registered
-    EXPECT_NO_THROW(manager_->registerModule(test_module_.get()));
+    // Transfer ownership to manager. After this call test_module_ should be null.
+    EXPECT_NO_THROW({
+        auto* raw = manager_->registerModule(std::move(test_module_));
+        EXPECT_NE(raw, nullptr);
+    });
+    EXPECT_EQ(test_module_, nullptr);
 }
 
 // Test JVMTI error handling
