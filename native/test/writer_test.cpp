@@ -1,24 +1,25 @@
-#include <gtest/gtest.h>
-#include <memory>
-#include <thread>
-#include <chrono>
-#include <fstream>
-#include <vector>
-
 #include "writer.h"
-#include "message.h"
 
+#include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <fstream>
+#include <memory>
+#include <thread>
+#include <vector>
+
+#include "message.h"
+
 namespace jvmtool {
 
 class MessageWriterTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         test_socket_path_ = "/tmp/test_writer_socket";
-        
+
         // Clean up any existing files
         std::remove(test_socket_path_.c_str());
     }
@@ -45,10 +46,10 @@ TEST_F(MessageWriterTest, FileWriterBasicFunctionality) {
     std::vector<uint8_t> received_data;
     bool client_finished = false;
     std::atomic<bool> client_connected{false};
-    
+
     std::thread client_thread([&]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Give server time to setup
-        
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));  // Give server time to setup
+
         int client_socket = socket(AF_UNIX, SOCK_STREAM, 0);
         if (client_socket != -1) {
             struct sockaddr_un addr;
@@ -79,16 +80,18 @@ TEST_F(MessageWriterTest, FileWriterBasicFunctionality) {
         int client_fd = writer.waitForClient();
         if (client_fd != -1) {
             writer.writeMessage(client_fd, msg);
-            writer.disconnectClient(client_fd);
+            if (client_fd != -1) {
+                ::close(client_fd);
+            }
         }
     });
 
     // Wait for client to finish with timeout
     client_thread.join();
-    
+
     // Give server thread time to complete
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    
+
     server_thread.join();
 
     // Close writer
@@ -96,7 +99,7 @@ TEST_F(MessageWriterTest, FileWriterBasicFunctionality) {
     EXPECT_FALSE(writer.isReady());
 
     EXPECT_TRUE(client_finished);
-    
+
     if (client_connected) {
         // Only verify received data if client actually connected
         auto expected_content = msg.serialize();
@@ -112,13 +115,11 @@ TEST_F(MessageWriterTest, FileWriterMultipleMessages) {
     MessageWriter writer;
 
     EXPECT_TRUE(writer.initialize(test_socket_path_));
-    
+
     // Just test that we can create multiple messages without hanging
-    std::vector<Message> messages = {
-        Message(AgentType::METASPACE, STATUS, "Status message"),
-        Message(AgentType::THREAD, DATA, "Thread data"),
-        Message(AgentType::GC, ERROR, "GC error")
-    };
+    std::vector<Message> messages = {Message(AgentType::METASPACE, STATUS, "Status message"),
+                                     Message(AgentType::THREAD, DATA, "Thread data"),
+                                     Message(AgentType::GC, ERROR, "GC error")};
 
     // Test message creation and serialization
     for (const auto& msg : messages) {
@@ -126,7 +127,7 @@ TEST_F(MessageWriterTest, FileWriterMultipleMessages) {
         auto serialized = msg.serialize();
         EXPECT_GT(serialized.size(), sizeof(MessageHeader));
     }
-    
+
     writer.close();
 }
 
@@ -141,7 +142,7 @@ TEST_F(MessageWriterTest, UnixSocketWriterBasicFunctionality) {
     // Test message creation
     std::string test_content = "Unix socket test";
     Message msg(AgentType::CLASS, DATA, test_content);
-    
+
     EXPECT_TRUE(msg.isValid());
     EXPECT_EQ(msg.getHeader().agent_type, AgentType::CLASS);
     EXPECT_EQ(msg.getHeader().content_type, DATA);
@@ -170,8 +171,7 @@ TEST_F(MessageWriterTest, MessageSerialization) {
         Message(AgentType::METASPACE, DATA, "Heap analysis data"),
         Message(AgentType::GC, ERROR, "Garbage collection error"),
         Message(AgentType::THREAD, STATUS, "Thread dump complete"),
-        Message(AgentType::CLASS, DATA, std::vector<uint8_t>{0x01, 0x02, 0x03, 0x04})
-    };
+        Message(AgentType::CLASS, DATA, std::vector<uint8_t>{0x01, 0x02, 0x03, 0x04})};
 
     MessageWriter writer;
     EXPECT_TRUE(writer.initialize(test_socket_path_));
@@ -183,7 +183,7 @@ TEST_F(MessageWriterTest, MessageSerialization) {
         EXPECT_EQ(serialized.size(), msg.getTotalSize());
         EXPECT_GE(serialized.size(), sizeof(MessageHeader));
     }
-    
+
     writer.close();
 }
 

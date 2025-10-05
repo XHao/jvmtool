@@ -218,11 +218,16 @@ endif()
 if(BUILD_TESTS)
     enable_testing()
     include(FetchContent)
-    FetchContent_Declare(
-        googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-    )
-    FetchContent_MakeAvailable(googletest)
+    FetchContent_GetProperties(googletest)
+    if(NOT googletest_POPULATED)
+        FetchContent_Declare(
+            googletest
+            URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+        )
+        FetchContent_MakeAvailable(googletest)
+    else()
+        message(STATUS "Google Test already configured, skipping...")
+    endif()
 
     file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
     add_executable(jvmtool-agent-test ${TEST_SOURCES})

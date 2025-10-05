@@ -17,13 +17,19 @@ class MessageWriter {
     MessageWriter();
     ~MessageWriter();
 
-    bool initialize(const std::string& path);
+    bool initialize(const std::string& socket_path);
 
     int waitForClient();
 
-    void disconnectClient(int fd);
+    bool setNonBlocking();
 
-    bool writeMessage(int fd, const Message& message);
+    // Try accepting a client once in non-blocking mode.
+    // Return >=0 : client fd
+    //        -2 : no client yet (EAGAIN / EWOULDBLOCK / EINTR)
+    //        -1 : fatal error (check getLastError())
+    int tryAccept();
+
+    bool writeMessage(int client_fd, const Message& message);
 
     void close();
 
@@ -38,7 +44,7 @@ class MessageWriter {
   private:
     std::string path_;
     std::string last_error_;
-  int socket_fd_;
+    int socket_fd_;
 };
 
 class ClosableFd {

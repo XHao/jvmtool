@@ -6,7 +6,7 @@ namespace jvmtool {
 
 class LibraryLoader {
   public:
-    static CodeCache* findLibraryByName(const char* libName);
+    static CodeCache* findLibraryByName(const char* lib_name);
 };
 
 }  // namespace jvmtool

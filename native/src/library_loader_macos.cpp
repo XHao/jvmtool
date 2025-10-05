@@ -8,6 +8,7 @@
     #include <vector>
 
     #include "library_loader.h"
+    #include "scope_guard.h"
 
 namespace jvmtool {
 
@@ -91,8 +92,8 @@ class MachOParser {
     }
 };
 
-CodeCache* LibraryLoader::findLibraryByName(const char* libName) {
-    if (libName == nullptr) {
+CodeCache* LibraryLoader::findLibraryByName(const char* lib_name) {
+    if (lib_name == nullptr) {
         return nullptr;
     }
     uint32_t count = _dyld_image_count();
@@ -104,17 +105,18 @@ CodeCache* LibraryLoader::findLibraryByName(const char* libName) {
         // extract basename
         const char* base = std::strrchr(image_path, '/');
         base = base ? base + 1 : image_path;
-        if (std::strcmp(base, libName) == 0) {
+        if (std::strcmp(base, lib_name) == 0) {
             const mach_header* header = _dyld_get_image_header(i);
             intptr_t slide = _dyld_get_image_vmaddr_slide(i);
             // Ownership: returned raw pointer managed by caller (AgentManager / VMStructs init).
             CodeCache* cache = new CodeCache(base, static_cast<short>(i), NO_MIN_ADDRESS,
                                              NO_MAX_ADDRESS, reinterpret_cast<const char*>(slide));
+            auto cleanup = jvmtool::make_scope_exit([&]() noexcept { delete cache; });
             MachOParser parser(cache, header, slide);
             if (!parser.parse()) {
-                delete cache;
                 return nullptr;
             }
+            cleanup.dismiss();
             return cache;
         }
     }

@@ -9,8 +9,6 @@ import (
 	"net"
 	"strings"
 	"time"
-
-	"github.com/XHao/jvmtool/pkg"
 )
 
 // Native message types (must match native/include/message.h)
@@ -55,11 +53,19 @@ func connectSocket(socketPath string, timeout time.Duration) (net.Conn, error) {
 	return nil, lastErr
 }
 
-// readMessages reads binary messages and forwards text payloads to stdout/pkg.Log.
+// readMessages reads binary messages and forwards them to the supplied handler.
 // Returns an error if the stream indicates an ERROR message or if IO fails.
-func readMessages(conn net.Conn, until time.Time) error {
+func readMessages(conn net.Conn, until time.Time, handler SAStreamHandler) error {
 	defer conn.Close()
+	if handler == nil {
+		handler = newDefaultStreamHandler(SAAgentOption{})
+	}
+
 	reader := bufio.NewReader(conn)
+	var streamErr error
+	defer func() {
+		_ = handler.OnComplete(streamErr)
+	}()
 
 	for {
 		// Respect overall deadline
@@ -83,7 +89,9 @@ func readMessages(conn net.Conn, until time.Time) error {
 			if strings.Contains(err.Error(), "EOF") {
 				return nil
 			}
-			return fmt.Errorf("read header: %w", err)
+			err = fmt.Errorf("read header: %w", err)
+			streamErr = err
+			return err
 		}
 
 		if hdr.ContentLength == 0 {
@@ -91,34 +99,49 @@ func readMessages(conn net.Conn, until time.Time) error {
 		}
 
 		buf := make([]byte, int(hdr.ContentLength))
-		if _, err := io.ReadFull(reader, buf); err != nil {
+		n, err := io.ReadFull(reader, buf)
+		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				// try next iteration; content may be partial, but in practice write is atomic
 				continue
 			}
 			if strings.Contains(err.Error(), "EOF") {
-				// best-effort print what we have
-				if len(buf) > 0 {
-					fmt.Print(string(buf))
+				// best-effort deliver what we have
+				if n > 0 {
+					if handlerErr := handler.OnData(string(buf[:n])); handlerErr != nil {
+						streamErr = handlerErr
+						return handlerErr
+					}
 				}
 				return nil
 			}
-			return fmt.Errorf("read content: %w", err)
+			err = fmt.Errorf("read content: %w", err)
+			streamErr = err
+			return err
 		}
 
 		payload := string(buf)
 		switch hdr.ContentType {
 		case nativeContentStatus:
-			pkg.Log(strings.TrimRight(payload, "\n"))
+			message := strings.TrimRight(payload, "\n")
+			if err := handler.OnStatus(message); err != nil {
+				streamErr = err
+				return err
+			}
 			// End-of-analysis marker from native
-			if strings.Contains(payload, "=== End Analysis ===") {
+			if strings.Contains(message, "=== End Analysis ===") {
+				streamErr = nil
 				return nil
 			}
 		case nativeContentError:
-			return fmt.Errorf("agent error: %s", strings.TrimSpace(payload))
+			err := fmt.Errorf("agent error: %s", strings.TrimSpace(payload))
+			streamErr = err
+			return err
 		case nativeContentData:
-			// Data may contain multiple lines; print as-is
-			fmt.Print(payload)
+			if err := handler.OnData(payload); err != nil {
+				streamErr = err
+				return err
+			}
 		default:
 			// Unknown type; ignore
 		}

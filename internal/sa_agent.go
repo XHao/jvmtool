@@ -1,13 +1,11 @@
 package internal
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/XHao/jvmtool/pkg"
@@ -17,7 +15,8 @@ import (
 type SAAgentOption struct {
 	User     string
 	Pid      string
-	Analysis string // memory, thread, class, heap, all
+	Module   SAProvider
+	Task     string
 	Duration int
 	Output   string
 }
@@ -27,7 +26,8 @@ func ParseSAAgentFlags(args []string) (SAAgentOption, error) {
 	saFlagSet := flag.NewFlagSet("sa", flag.ContinueOnError)
 	user := saFlagSet.String("user", "", "specify the user")
 	pid := saFlagSet.String("pid", "", "specify the pid of the Java process")
-	analysis := saFlagSet.String("analysis", "all", "analysis type: memory, thread, class, heap, all")
+	module := saFlagSet.String("module", "", "analysis module (currently only 'meta')")
+	task := saFlagSet.String("task", "", "module-specific task type")
 	duration := saFlagSet.Int("duration", 30, "analysis duration in seconds")
 	output := saFlagSet.String("output", "", "output file path")
 
@@ -35,10 +35,16 @@ func ParseSAAgentFlags(args []string) (SAAgentOption, error) {
 		return SAAgentOption{}, err
 	}
 
+	provider, resolvedTask, err := resolveModuleAndTask(*module, *task)
+	if err != nil {
+		return SAAgentOption{}, err
+	}
+
 	return SAAgentOption{
 		User:     *user,
 		Pid:      *pid,
-		Analysis: *analysis,
+		Module:   provider,
+		Task:     resolvedTask,
 		Duration: *duration,
 		Output:   *output,
 	}, nil
@@ -62,18 +68,6 @@ func (opt *SAAgentOption) SAAgentValidate() error {
 		return err
 	}
 
-	// Validate analysis type
-	validTypes := map[string]bool{
-		"memory": true,
-		"thread": true,
-		"class":  true,
-		"heap":   true,
-		"all":    true,
-	}
-	if !validTypes[opt.Analysis] {
-		return fmt.Errorf("invalid analysis type: %s", opt.Analysis)
-	}
-
 	return nil
 }
 
@@ -90,32 +84,7 @@ func SAAgent(option SAAgentOption) int {
 		return 1
 	}
 
-	// Map analysis to native module/task_type
-	module := ""
-	taskType := ""
-	switch option.Analysis {
-	case "memory", "all":
-		module = "memory"
-		taskType = "all"
-	case "heap":
-		module = "memory"
-		taskType = "heap"
-	case "gc":
-		module = "memory"
-		taskType = "gc"
-	case "metaspace":
-		module = "memory"
-		taskType = "metaspace"
-	default:
-		pkg.Log(fmt.Sprintf("analysis type '%s' is not supported yet", option.Analysis))
-		return 1
-	}
-
-	// Build parameters expected by native agent. Current native uses a Unix socket at /tmp/jvmtool_memory_<pid>.sock
-	params := fmt.Sprintf("analysis=%s,task_type=%s,duration=%d", module, taskType, option.Duration)
-	if option.Output != "" {
-		params += fmt.Sprintf(",output=%s", option.Output)
-	}
+	params := option.Module.BuildParams(option.Task, option)
 
 	jattachOpt := JattachOption{
 		User:        option.User,
@@ -124,17 +93,17 @@ func SAAgent(option SAAgentOption) int {
 		AgentParams: params,
 	}
 
-	pkg.Log(fmt.Sprintf("Starting SA analysis for process %s (type: %s, duration: %ds)",
-		option.Pid, option.Analysis, option.Duration))
+	pkg.Log(fmt.Sprintf("Starting SA analysis for process %s (module: %s, task: %s, duration: %ds)",
+		option.Pid, option.Module, option.Task, option.Duration))
+
+	handler := option.Module.StreamHandler(option)
 
 	result := Jattach(jattachOpt)
 	if result != 0 {
 		return result
 	}
 
-	// Connect to native Unix socket and stream messages
-	// Note: current native implementation hardcodes memory module socket path
-	socketPath := fmt.Sprintf("/tmp/jvmtool_%s_%s.sock", module, option.Pid)
+	socketPath := option.Module.SocketPath(option.Pid)
 	conn, err := connectSocket(socketPath, 5*time.Second)
 	if err != nil {
 		pkg.Log(fmt.Sprintf("Failed to connect to agent stream: %v", err))
@@ -143,7 +112,7 @@ func SAAgent(option SAAgentOption) int {
 
 	pkg.Log("Streaming analysis data...")
 	deadline := time.Now().Add(time.Duration(option.Duration+2) * time.Second)
-	if err := readMessages(conn, deadline); err != nil {
+	if err := readMessages(conn, deadline, handler); err != nil {
 		pkg.Log(fmt.Sprintf("SA stream error: %v", err))
 		return 1
 	}
@@ -154,7 +123,6 @@ func SAAgent(option SAAgentOption) int {
 // findNativeAgent searches for the native agent library in various locations
 // following the project's installation and build structure
 func findNativeAgent() (string, error) {
-	// Detect OS and set library extension
 	var libExt string
 	switch runtime.GOOS {
 	case "darwin":
@@ -194,7 +162,6 @@ func findNativeAgent() (string, error) {
 		}
 
 		if pkg.PathExists(absPath) {
-			// Validate the agent library before returning
 			if err := ValidateAgentLibrary(absPath); err != nil {
 				pkg.Log(fmt.Sprintf("Agent validation failed for %s", absPath))
 				continue
@@ -203,7 +170,6 @@ func findNativeAgent() (string, error) {
 		}
 	}
 
-	// If not found, provide helpful error message
 	return "", fmt.Errorf("native agent library '%s' not found in any of the search paths:\n%s",
 		agentName, joinSearchPaths(searchPaths))
 }
@@ -218,33 +184,4 @@ func joinSearchPaths(paths []string) string {
 		result += path
 	}
 	return result
-}
-
-// displayTempFileOutput reads and displays the content of a temporary output file
-func displayTempFileOutput(tempFile string) {
-	file, err := os.Open(tempFile)
-	if err != nil {
-		pkg.Log(fmt.Sprintf("Error reading analysis output: %v", err))
-		return
-	}
-	defer file.Close()
-
-	pkg.Log("Analysis Results:")
-	pkg.Log("================")
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Remove the timestamp prefix that was added in C++
-		if len(line) > 21 && line[0] == '[' {
-			if idx := strings.Index(line, "] "); idx != -1 && idx < 25 {
-				line = line[idx+2:]
-			}
-		}
-		fmt.Println(line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		pkg.Log(fmt.Sprintf("Error reading analysis output: %v", err))
-	}
 }

@@ -1,8 +1,6 @@
 package internal
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -21,11 +19,12 @@ func TestParseSAAgentFlags(t *testing.T) {
 	}{
 		{
 			name: "valid basic flags",
-			args: []string{"-user", "testuser", "-pid", "1234", "-analysis", "memory"},
+			args: []string{"-user", "testuser", "-pid", "1234"},
 			expected: SAAgentOption{
 				User:     "testuser",
 				Pid:      "1234",
-				Analysis: "memory",
+				Module:   metaspaceProvider{},
+				Task:     "metaspace",
 				Duration: 30,
 				Output:   "",
 			},
@@ -33,13 +32,27 @@ func TestParseSAAgentFlags(t *testing.T) {
 		},
 		{
 			name: "all flags provided",
-			args: []string{"-user", "testuser", "-pid", "1234", "-analysis", "heap", "-duration", "60", "-output", "/tmp/test.log"},
+			args: []string{"-user", "testuser", "-pid", "1234", "-module", "meta", "-task", "metaspace", "-duration", "60", "-output", "/tmp/test.log"},
 			expected: SAAgentOption{
 				User:     "testuser",
 				Pid:      "1234",
-				Analysis: "heap",
+				Module:   metaspaceProvider{},
+				Task:     "metaspace",
 				Duration: 60,
 				Output:   "/tmp/test.log",
+			},
+			wantErr: false,
+		},
+		{
+			name: "analysis preset",
+			args: []string{"-user", "testuser", "-pid", "1234", "-analysis", "metaspace"},
+			expected: SAAgentOption{
+				User:     "testuser",
+				Pid:      "1234",
+				Module:   metaspaceProvider{},
+				Task:     "metaspace",
+				Duration: 30,
+				Output:   "",
 			},
 			wantErr: false,
 		},
@@ -63,72 +76,74 @@ func TestParseSAAgentFlags(t *testing.T) {
 	}
 }
 
-func TestAnalysisTypeValidation(t *testing.T) {
-	validTypes := map[string]bool{
-		"memory": true,
-		"thread": true,
-		"class":  true,
-		"heap":   true,
-		"all":    true,
-	}
-
+func TestResolveModuleAndTask(t *testing.T) {
 	tests := []struct {
-		name          string
-		analysisType  string
-		shouldBeValid bool
-	}{
-		{"valid memory", "memory", true},
-		{"valid thread", "thread", true},
-		{"valid class", "class", true},
-		{"valid heap", "heap", true},
-		{"valid all", "all", true},
-		{"invalid type", "invalid", false},
-		{"empty type", "", false},
-		{"wrong type", "wrong", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			isValid := validTypes[tt.analysisType]
-			assert.Equal(t, tt.shouldBeValid, isValid,
-				"Analysis type %q validation result should be %v", tt.analysisType, tt.shouldBeValid)
-		})
-	}
-}
-
-func TestSAAgentParameterBuilding(t *testing.T) {
-	tests := []struct {
-		name     string
-		option   SAAgentOption
-		expected string
+		name      string
+		module    string
+		task      string
+		preset    string
+		wantMod   string
+		wantTask  string
+		wantError bool
 	}{
 		{
-			name: "basic parameters",
-			option: SAAgentOption{
-				Analysis: "memory",
-				Duration: 30,
-				Output:   "",
-			},
-			expected: "analysis=memory,duration=30",
+			name:     "defaults",
+			module:   "",
+			task:     "",
+			preset:   "",
+			wantMod:  "meta",
+			wantTask: "metaspace",
 		},
 		{
-			name: "with output file",
-			option: SAAgentOption{
-				Analysis: "heap",
-				Duration: 60,
-				Output:   "/tmp/test.log",
-			},
-			expected: "analysis=heap,duration=60,output=/tmp/test.log",
+			name:     "explicit module and task",
+			module:   "meta",
+			task:     "metaspace",
+			preset:   "",
+			wantMod:  "meta",
+			wantTask: "metaspace",
+		},
+		{
+			name:     "module alias memory",
+			module:   "memory",
+			task:     "metaspace",
+			preset:   "",
+			wantMod:  "meta",
+			wantTask: "metaspace",
+		},
+		{
+			name:     "preset overrides",
+			module:   "ignored",
+			task:     "ignored",
+			preset:   "metaspace",
+			wantMod:  "meta",
+			wantTask: "metaspace",
+		},
+		{
+			name:     "preset memory alias",
+			module:   "ignored",
+			task:     "ignored",
+			preset:   "memory",
+			wantMod:  "meta",
+			wantTask: "metaspace",
+		},
+		{
+			name:      "unsupported preset",
+			preset:    "thread",
+			wantError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			params := fmt.Sprintf("analysis=%s,duration=%d", tt.option.Analysis, tt.option.Duration)
-			if tt.option.Output != "" {
-				params += fmt.Sprintf(",output=%s", tt.option.Output)
+			provider, task, err := resolveModuleAndTask(tt.module, tt.task)
+			if tt.wantError {
+				assert.Error(t, err)
+				return
 			}
-			assert.Equal(t, tt.expected, params)
+			assert.NoError(t, err)
+			require.NotNil(t, provider)
+			assert.Equal(t, tt.wantMod, provider.Name())
+			assert.Equal(t, tt.wantTask, task)
 		})
 	}
 }
@@ -158,27 +173,6 @@ func TestFindNativeAgent(t *testing.T) {
 	}
 }
 
-func TestDisplayTempFileOutput(t *testing.T) {
-	// Create a temporary file for testing
-	tempFile, err := os.CreateTemp("", "jvmtool_test_*.log")
-	require.NoError(t, err)
-	defer os.Remove(tempFile.Name())
-
-	// Write test content with timestamps
-	testContent := "[2025-07-24 12:34:56] Memory Analysis Report\n[2025-07-24 12:34:57] Total Heap Size: 512MB\n"
-
-	_, err = tempFile.WriteString(testContent)
-	require.NoError(t, err)
-	tempFile.Close()
-
-	// Test displayTempFileOutput function
-	// Since it prints to stdout, we can't easily capture the output in this test
-	// But we can at least verify it doesn't panic
-	assert.NotPanics(t, func() {
-		displayTempFileOutput(tempFile.Name())
-	})
-}
-
 func TestSAAgent_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -190,7 +184,8 @@ func TestSAAgent_ErrorHandling(t *testing.T) {
 			option: SAAgentOption{
 				User:     "nonexistentuser123",
 				Pid:      "1234",
-				Analysis: "memory",
+				Module:   metaspaceProvider{},
+				Task:     "metaspace",
 				Duration: 30,
 			},
 			expected: 1, // Should return error code
@@ -200,7 +195,8 @@ func TestSAAgent_ErrorHandling(t *testing.T) {
 			option: SAAgentOption{
 				User:     "testuser",
 				Pid:      "",
-				Analysis: "memory",
+				Module:   metaspaceProvider{},
+				Task:     "metaspace",
 				Duration: 30,
 			},
 			expected: 1, // Should return error code

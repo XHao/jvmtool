@@ -104,10 +104,10 @@ static int dl_iterate_callback(struct dl_phdr_info* info, size_t, void* data) {
     return 0;  // continue
 }
 
-CodeCache* LibraryLoader::findLibraryByName(const char* libName) {
-    if (!libName)
+CodeCache* LibraryLoader::findLibraryByName(const char* lib_name) {
+    if (!lib_name)
         return nullptr;
-    LoadContext ctx{libName, nullptr};
+    LoadContext ctx{lib_name, nullptr};
     dl_iterate_phdr(dl_iterate_callback, &ctx);
     return ctx.result;  // may be nullptr if not found
 }

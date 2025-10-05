@@ -120,6 +120,8 @@ void logJvmtiError(jvmtiError error, const char* context) {
               << " (" << error << ")\n";
 }
 
+AgentModule::AgentModule() : writer_(std::make_unique<MessageWriter>()) {}
+
 AgentModule::~AgentModule() {
     try {
         if (writer_ && writer_->isReady()) {
@@ -183,13 +185,9 @@ AgentModule::MonitorLock::~MonitorLock() {
     }
 }
 jint AgentModule::writeReady() {
-    if (!writer_) {
-        writer_ = std::make_unique<MessageWriter>();
-        if (!writer_->initialize("/tmp/jvmtool_" + std::string(getName()) + "_" +
-                                 std::to_string(getpid()) + ".sock")) {
-            writer_ = nullptr;
-            return JNI_ERR;
-        }
+    if (!writer_->isReady() && !writer_->initialize("/tmp/jvmtool_" + std::string(getName()) + "_" +
+                                                    std::to_string(getpid()) + ".sock")) {
+        return JNI_ERR;
     }
     return JNI_OK;
 }
@@ -269,8 +267,8 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
         // Initialize all registered modules
         for (auto it = modules_.begin(); it != modules_.end();) {
             const std::string& name = it->first;
-            auto& modulePtr = it->second;
-            const jvmtiError init_err = modulePtr->initialize(java_vm, jvmti);
+            auto& module_ptr = it->second;
+            const jvmtiError init_err = module_ptr->initialize(java_vm, jvmti);
             if (init_err != JVMTI_ERROR_NONE) {
                 logJvmtiError(init_err, ("AgentModule::initialize - Module '" + name +
                                          "' initialization failed")
@@ -284,13 +282,13 @@ jint AgentManager::onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* option
     }
 
     // Parse options and find target module
-    auto rawOpts = parseRawOptions(options);
-    const std::string target_module = rawOpts["analysis"];
+    auto raw_opts = parseRawOptions(options);
+    const std::string target_module = raw_opts["analysis"];
 
     auto it = modules_.find(target_module);
     if (it != modules_.end() && it->second) {
-        const TaskOpt taskOpt = parseOptions(options);
-        return it->second->onAttach(taskOpt);
+        const TaskOpt task_opt = parseOptions(options);
+        return it->second->onAttach(task_opt);
     }
 
     logJvmtiError(

@@ -46,7 +46,7 @@ class AgentModule {
     AgentModule& operator=(AgentModule&&) = delete;
 
   protected:
-    AgentModule() = default;
+    AgentModule();
 
     jvmtiEnv* jvmti_ = nullptr;
     JavaVM* vm_ = nullptr;
@@ -58,6 +58,7 @@ class AgentModule {
     void reset() {
         MonitorLock(this);
         state_ = ModuleState::IDLE;
+        writer_->close();
     }
 
     jint writeReady();
@@ -87,15 +88,15 @@ class AgentModule {
 class AgentManager {
   public:
     static AgentManager& instance();
-  AgentModule* registerModule(std::unique_ptr<AgentModule> module);
+    AgentModule* registerModule(std::unique_ptr<AgentModule> module);
     jint onAttach(JavaVM* java_vm, jvmtiEnv* jvmti, const char* options);
 
   private:
-  std::unordered_map<std::string, std::unique_ptr<AgentModule>> modules_;
+    std::unordered_map<std::string, std::unique_ptr<AgentModule>> modules_;
     std::mutex modules_mutex_;
     bool inited_{false};
 
-  void cleanup();
+    void cleanup();
 
     AgentManager() = default;
     ~AgentManager();

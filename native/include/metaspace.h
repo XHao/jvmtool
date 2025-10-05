@@ -8,6 +8,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 #include <thread>
 
 #include "agent.h"
@@ -20,6 +21,7 @@ namespace jvmtool {
 class MetaspaceSAModule : public AgentModule {
   private:
     std::thread monitor_thread_;
+    std::atomic<bool> stop_{false};
 
   public:
     MetaspaceSAModule();
@@ -37,13 +39,13 @@ class MetaspaceSAModule : public AgentModule {
     }
 
   private:
-    void monitor(const TaskOpt& opt);
-    bool analyzeMetaspace(int fd);
-    Message collectMetaspaceStatistics() const;
+        void monitor(const TaskOpt& opt);
+        bool analyzeMetaspace(int fd, JNIEnv* env);
+        Message collectMetaspaceStatistics(JNIEnv* env) const;
 };
 
 class MetaspaceStructs : public VMStructs {
-  protected:
+    protected:
     // Metaspace-related flags
     static bool _has_metaspace_structs;
 
@@ -61,6 +63,17 @@ class MetaspaceStructs : public VMStructs {
     // Initialization methods
     static void init(CodeCache* libjvm);
     static void ready();
+
+    struct ClassLoaderStats {
+        std::string loader_name;
+        std::string module_name;
+        size_t total_bytes{0};
+        size_t klass_bytes{0};
+        size_t method_bytes{0};
+        size_t constant_pool_bytes{0};
+    };
+
+    static bool collectClassLoaderStats(JNIEnv* env, std::vector<ClassLoaderStats>& out);
 
     // Metaspace functionality checks
     static bool hasMetaspaceStructs() {
