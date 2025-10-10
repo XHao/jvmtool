@@ -22,9 +22,10 @@ struct JvmtiErrorInfo {
 enum class ModuleState { IDLE, ANALYZING };
 
 struct TaskOpt {
-    int interval;
-    int duration;
+    int interval;  // 5s
+    int duration;  // 30s
     std::string type;
+    bool single_shot{false};
 };
 
 class AgentModule {

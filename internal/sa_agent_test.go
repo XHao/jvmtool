@@ -21,14 +21,14 @@ func TestParseSAAgentFlags(t *testing.T) {
 			name: "valid basic flags",
 			args: []string{"-user", "testuser", "-pid", "1234"},
 			expected: SAAgentOption{
-				User:     "testuser",
-				Pid:      "1234",
-				Module:   metaspaceProvider{},
-				Task:     "metaspace",
-				Duration: 30,
+				User:     "",
+				Pid:      "",
+				Module:   nil,
+				Task:     "",
+				Duration: 0,
 				Output:   "",
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "all flags provided",
@@ -40,19 +40,6 @@ func TestParseSAAgentFlags(t *testing.T) {
 				Task:     "metaspace",
 				Duration: 60,
 				Output:   "/tmp/test.log",
-			},
-			wantErr: false,
-		},
-		{
-			name: "analysis preset",
-			args: []string{"-user", "testuser", "-pid", "1234", "-analysis", "metaspace"},
-			expected: SAAgentOption{
-				User:     "testuser",
-				Pid:      "1234",
-				Module:   metaspaceProvider{},
-				Task:     "metaspace",
-				Duration: 30,
-				Output:   "",
 			},
 			wantErr: false,
 		},
@@ -81,54 +68,26 @@ func TestResolveModuleAndTask(t *testing.T) {
 		name      string
 		module    string
 		task      string
-		preset    string
 		wantMod   string
 		wantTask  string
 		wantError bool
 	}{
 		{
-			name:     "defaults",
-			module:   "",
-			task:     "",
-			preset:   "",
-			wantMod:  "meta",
-			wantTask: "metaspace",
+			name:      "defaults",
+			module:    "",
+			task:      "",
+			wantError: true,
 		},
 		{
 			name:     "explicit module and task",
 			module:   "meta",
-			task:     "metaspace",
-			preset:   "",
+			task:     "stats",
 			wantMod:  "meta",
-			wantTask: "metaspace",
+			wantTask: "stats",
 		},
 		{
-			name:     "module alias memory",
-			module:   "memory",
-			task:     "metaspace",
-			preset:   "",
-			wantMod:  "meta",
-			wantTask: "metaspace",
-		},
-		{
-			name:     "preset overrides",
-			module:   "ignored",
-			task:     "ignored",
-			preset:   "metaspace",
-			wantMod:  "meta",
-			wantTask: "metaspace",
-		},
-		{
-			name:     "preset memory alias",
-			module:   "ignored",
-			task:     "ignored",
-			preset:   "memory",
-			wantMod:  "meta",
-			wantTask: "metaspace",
-		},
-		{
-			name:      "unsupported preset",
-			preset:    "thread",
+			name:      "unsupported module",
+			module:    "unsupported",
 			wantError: true,
 		},
 	}
@@ -185,7 +144,7 @@ func TestSAAgent_ErrorHandling(t *testing.T) {
 				User:     "nonexistentuser123",
 				Pid:      "1234",
 				Module:   metaspaceProvider{},
-				Task:     "metaspace",
+				Task:     "stats",
 				Duration: 30,
 			},
 			expected: 1, // Should return error code
@@ -196,7 +155,7 @@ func TestSAAgent_ErrorHandling(t *testing.T) {
 				User:     "testuser",
 				Pid:      "",
 				Module:   metaspaceProvider{},
-				Task:     "metaspace",
+				Task:     "stats",
 				Duration: 30,
 			},
 			expected: 1, // Should return error code
