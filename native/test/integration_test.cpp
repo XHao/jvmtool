@@ -2,7 +2,7 @@
 #include <memory>
 
 #include "agent.h"
-#include "metaspace.h"
+#include "metaspace/module.h"
 #include "message.h"
 #include "writer.h"
 

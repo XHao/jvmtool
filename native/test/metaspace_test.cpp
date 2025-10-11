@@ -7,7 +7,8 @@
  * - Tests MetaspaceStructs and MetaspaceSAModule functionality
  */
 
-#include "metaspace.h"
+#include "metaspace/module.h"
+#include "metaspace/structs.h"
 #include <gtest/gtest.h>
 #include <memory>
 #include <unordered_map>
