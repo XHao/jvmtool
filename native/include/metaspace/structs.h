@@ -1,11 +1,5 @@
 #pragma once
 
-#include <jni.h>
-
-#include <array>
-#include <vector>
-
-#include "metaspace/class_loader_stats.h"
 #include "vm/vmStructs.h"
 
 namespace jvmtool {
@@ -44,10 +38,6 @@ class MetaspaceStructs : public VMStructs {
   public:
     static void init(CodeCache* libjvm);
     static void ready();
-
-    static bool collectClassLoaderStats(JNIEnv* env, std::vector<ClassLoaderStats>& out,
-                                        ClassLoaderSummary* summary = nullptr,
-                                        std::vector<std::string>* debug = nullptr);
 
     static bool hasMetaspaceStructs() {
         return _has_metaspace_structs;
@@ -108,7 +98,5 @@ class MetaspaceStructs : public VMStructs {
         return _shared_metaspace_base != nullptr && _shared_metaspace_top != nullptr;
     }
 };
-
-std::array<const char*, 2> SelectClassStatsCommands(int hotspot_version);
 
 }  // namespace jvmtool
