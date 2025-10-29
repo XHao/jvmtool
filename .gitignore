@@ -33,3 +33,4 @@ dist
 .build_info_cache
 jdk
 .claude
+*.class

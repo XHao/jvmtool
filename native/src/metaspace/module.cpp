@@ -13,6 +13,9 @@
 #include "common.h"
 #include "deadline_scheduler.h"
 #include "jni_thread.h"
+#include "metaspace/classloader_analyzer.h"
+#include "metaspace/classloader_formatter.h"
+#include "metaspace/detect_analyzer.h"
 #include "metaspace/structs.h"
 #include "scope_guard.h"
 #include "vm/vm.h"
@@ -169,24 +172,91 @@ Message MetaspaceSAModule::collectMetaspaceStatistics(JNIEnv* env) const {
 
     if (!MetaspaceStructs::hasMetaspaceStructs()) {
         ss << "- Metaspace VMStructs not available; CDS boundaries unknown.\n";
-
-        ss << "- ClassLoader stats collection not supported in this build.\n";
-        return {agentType(), DATA, ss.str()};
-    }
-
-    ss << "- VMStructs access: available\n";
-    if (MetaspaceStructs::hasSharedMetaspace()) {
-        const void* base = MetaspaceStructs::sharedMetaspaceBase();
-        const void* top = MetaspaceStructs::sharedMetaspaceTop();
-        const size_t size = MetaspaceStructs::sharedMetaspaceSize();
-        ss << "- CDS shared Metaspace: enabled\n";
-        ss << "  base: " << base << ", top: " << top << ", size: " << size << " bytes ("
-           << formatBytes(size) << ")\n";
+        ss << "- Attempting basic ClassLoader analysis via JVMTI...\n\n";
     } else {
-        ss << "- CDS shared Metaspace: not enabled\n";
+        ss << "- VMStructs access: available\n";
+        if (MetaspaceStructs::hasSharedMetaspace()) {
+            const void* base = MetaspaceStructs::sharedMetaspaceBase();
+            const void* top = MetaspaceStructs::sharedMetaspaceTop();
+            const size_t size = MetaspaceStructs::sharedMetaspaceSize();
+            ss << "- CDS shared Metaspace: enabled\n";
+            ss << "  base: " << base << ", top: " << top << ", size: " << size << " bytes ("
+               << formatBytes(size) << ")\n";
+        } else {
+            ss << "- CDS shared Metaspace: not enabled\n";
+        }
+
+        if (MetaspaceStructs::hasClassLoaderDataSupport()) {
+            ss << "- ClassLoaderData traversal: supported\n";
+        } else {
+            ss << "- ClassLoaderData traversal: not supported (will use JVMTI only)\n";
+        }
+
+        if (MetaspaceStructs::hasKlassDetails()) {
+            ss << "- Klass detail analysis: supported\n";
+        } else {
+            ss << "- Klass detail analysis: not supported (will use estimates)\n";
+        }
+        ss << "\n";
     }
 
-    ss << "- ClassLoader stats collection not supported in this build.\n";
+    // Perform hybrid ClassLoader analysis using new API
+    try {
+        // Configure analysis options
+        ClassLoaderAnalysisOptions opts = ClassLoaderAnalysisOptions::detailed();
+        opts.max_classes_per_loader = 50;  // Analyze top 50 classes per loader
+        opts.top_n = 10;                   // Return top 10 loaders
+
+        ClassLoaderSummary summary;
+        std::vector<ClassLoaderInfo> loaders =
+            ClassLoaderAnalyzer::analyze(jvmti_, env, opts, &summary);
+
+        // Format and output summary report
+        std::string report = ClassLoaderReportFormatter::formatSummary(loaders, summary, 10);
+        ss << report;
+
+        // Show detailed class breakdown for loaders with detailed info
+        ss << "\n";
+        size_t detail_count = 0;
+        for (const auto& loader : loaders) {
+            if (loader.has_detailed_class_info && !loader.classes.empty()) {
+                // Show top 20 classes for the first detailed loader, top 10 for others
+                size_t num_classes = (detail_count == 0) ? 20 : 10;
+                std::string detail_report =
+                    ClassLoaderReportFormatter::formatClassDetails(loader, num_classes);
+                ss << detail_report << "\n";
+                detail_count++;
+            }
+        }
+
+        // Run pattern analysis on all loaders with detailed class info
+        std::vector<ClassLoaderInfo> loaders_with_details;
+        for (const auto& loader : loaders) {
+            if (loader.has_detailed_class_info) {
+                loaders_with_details.push_back(loader);
+            }
+        }
+
+        if (!loaders_with_details.empty()) {
+            std::vector<DetectionResult> patterns = DetectAnalyzer::analyze(loaders_with_details);
+            std::string pattern_report = DetectAnalyzer::formatReport(patterns, true);
+            ss << pattern_report;
+        }
+
+        // Clean up global references
+        for (auto& loader : loaders) {
+            if (loader.loader_object != nullptr) {
+                env->DeleteGlobalRef(loader.loader_object);
+            }
+            for (auto& class_info : loader.classes) {
+                if (class_info.class_ref != nullptr) {
+                    env->DeleteGlobalRef(class_info.class_ref);
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        ss << "\n[Error] ClassLoader analysis failed: " << e.what() << "\n";
+    }
 
     return {agentType(), DATA, ss.str()};
 }

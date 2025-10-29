@@ -73,6 +73,20 @@ int VMStructs::_constmethod_size = -1;
 int VMStructs::_pool_holder_offset = -1;
 int VMStructs::_array_len_offset = 0;
 int VMStructs::_array_data_offset = -1;
+
+// === InstanceKlass offsets for precise Metaspace measurement ===
+int VMStructs::_instance_klass_size_offset = -1;
+int VMStructs::_instance_klass_vtable_len_offset = -1;
+int VMStructs::_instance_klass_itable_len_offset = -1;
+int VMStructs::_instance_klass_fields_offset = -1;
+int VMStructs::_instance_klass_annotations_offset = -1;
+
+// === ConstantPool offsets for precise measurement ===
+int VMStructs::_constantpool_length_offset = -1;
+int VMStructs::_constantpool_cache_offset = -1;
+
+// === ConstMethod offsets for precise measurement ===
+int VMStructs::_constmethod_code_size_offset = -1;
 int VMStructs::_code_heap_memory_offset = -1;
 int VMStructs::_code_heap_segmap_offset = -1;
 int VMStructs::_code_heap_segment_shift = -1;
@@ -233,10 +247,16 @@ void VMStructs::initOffsets() {
                     _constmethod_constants_offset = *(int*)(entry + offset_offset);
                 } else if (strcmp(field, "_method_idnum") == 0) {
                     _constmethod_idnum_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_code_size") == 0) {
+                    _constmethod_code_size_offset = *(int*)(entry + offset_offset);
                 }
             } else if (strcmp(type, "ConstantPool") == 0) {
                 if (strcmp(field, "_pool_holder") == 0) {
                     _pool_holder_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_length") == 0) {
+                    _constantpool_length_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_cache") == 0) {
+                    _constantpool_cache_offset = *(int*)(entry + offset_offset);
                 }
             } else if (strcmp(type, "InstanceKlass") == 0) {
                 if (strcmp(field, "_class_loader_data") == 0) {
@@ -245,6 +265,16 @@ void VMStructs::initOffsets() {
                     _methods_offset = *(int*)(entry + offset_offset);
                 } else if (strcmp(field, "_methods_jmethod_ids") == 0) {
                     _jmethod_ids_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_size_helper") == 0) {
+                    _instance_klass_size_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_vtable_len") == 0) {
+                    _instance_klass_vtable_len_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_itable_len") == 0) {
+                    _instance_klass_itable_len_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_fields") == 0) {
+                    _instance_klass_fields_offset = *(int*)(entry + offset_offset);
+                } else if (strcmp(field, "_annotations") == 0) {
+                    _instance_klass_annotations_offset = *(int*)(entry + offset_offset);
                 }
             } else if (strcmp(type, "ClassLoaderData") == 0) {
                 if (strcmp(field, "_next") == 0) {

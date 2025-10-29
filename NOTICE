@@ -10,7 +10,16 @@ Third-party attributions
   - URL: https://github.com/async-profiler/async-profiler
   - Copyright: The async-profiler authors
   - License: Apache License, Version 2.0 (Apache-2.0)
-  - Note: Portions of this project (e.g., files under native/include and native/src) are adapted from or derived from async-profiler. The original work is licensed under the Apache License, Version 2.0. You may obtain a copy of the License at https://www.apache.org/licenses/LICENSE-2.0.
+  - Note: Portions of this project (e.g., files under native/include/vm and native/src/vm) 
+    are adapted from or derived from async-profiler. The original work is licensed under 
+    the Apache License, Version 2.0. You may obtain a copy of the License at 
+    https://www.apache.org/licenses/LICENSE-2.0.
+  - Modifications: The following files have been modified from the original async-profiler source:
+    * native/include/vm/vmStructs.h - Added new offset variables and accessor methods for 
+      precise Metaspace memory measurement; added VMKlass methods for safe memory access; 
+      modified method signatures for const-correctness
+    * native/src/vm/vmStructs.cpp - Removed OpenJ9 and Zing JVM support, only supports HotSpot JVM;
+      added parsing logic for new InstanceKlass, ConstantPool, and ConstMethod fields
 
 - GoogleTest (used for tests only)
   - URL: https://github.com/google/googletest

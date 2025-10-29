@@ -1,6 +1,19 @@
 /*
  * Copyright The async-profiler authors
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Modified by: jvmtool project
+ * Modifications (2025-10-23):
+ * - Added new offset variables for precise Metaspace memory measurement:
+ *   * InstanceKlass: _size_helper, _vtable_len, _itable_len, _fields, _annotations
+ *   * ConstantPool: _length, _cache
+ *   * ConstMethod: _code_size
+ * - Added static accessor methods for new offsets (constMethodCodeSizeOffset, etc.)
+ * - Added VMKlass methods for safe memory access:
+ *   * instanceKlassSizeInWords(), vtableLength(), itableLength()
+ *   * methodsArray(), constantPool()
+ * - Modified method signatures for const-correctness (at(), methodCount())
+ * - Added SafeAccess integration for pointer dereference protection
  */
 
 #ifndef _VMSTRUCTS_H
@@ -13,8 +26,17 @@
 #include <type_traits>
 
 #include "codeCache.h"
+#include "safeAccess.h"
 
 namespace jvmtool {
+
+// Sanity check constants for VMStructs operations
+constexpr int32_t MAX_REASONABLE_KLASS_SIZE_WORDS = 2048;       // ~16KB max for InstanceKlass
+constexpr int32_t MAX_REASONABLE_VTABLE_LENGTH = 10000;         // Max vtable entries
+constexpr int32_t MAX_REASONABLE_ITABLE_LENGTH = 10000;         // Max itable entries
+constexpr int32_t MAX_REASONABLE_METHOD_COUNT = 100000;         // Max methods in a class
+constexpr int32_t MAX_REASONABLE_CP_LENGTH = 100000;            // Max constant pool entries
+constexpr int32_t MAX_REASONABLE_CODE_SIZE = 10 * 1024 * 1024;  // 10MB max bytecode per method
 
 class VMStructs {
   protected:
@@ -77,6 +99,20 @@ class VMStructs {
     static int _pool_holder_offset;
     static int _array_len_offset;
     static int _array_data_offset;
+
+    // === InstanceKlass offsets for precise Metaspace measurement ===
+    static int _instance_klass_size_offset;         // _size_helper
+    static int _instance_klass_vtable_len_offset;   // _vtable_len
+    static int _instance_klass_itable_len_offset;   // _itable_len
+    static int _instance_klass_fields_offset;       // _fields
+    static int _instance_klass_annotations_offset;  // _annotations
+
+    // === ConstantPool offsets for precise measurement ===
+    static int _constantpool_length_offset;  // _length
+    static int _constantpool_cache_offset;   // _cache
+
+    // === ConstMethod offsets for precise measurement ===
+    static int _constmethod_code_size_offset;  // _code_size
     static int _code_heap_memory_offset;
     static int _code_heap_segmap_offset;
     static int _code_heap_segment_shift;
@@ -136,7 +172,7 @@ class VMStructs {
     static void initTLS(void* vm_thread);
     static void initThreadBridge();
 
-    const char* at(int offset) {
+    const char* at(int offset) const {
         return (const char*)this + offset;
     }
 
@@ -188,6 +224,27 @@ class VMStructs {
 
     static bool isInterpretedFrameValidFunc(const void* pc) {
         return pc >= _interpreted_frame_valid_start && pc < _interpreted_frame_valid_end;
+    }
+
+    // Accessor methods for newly added offsets (Phase 1 & 2)
+    static int constMethodCodeSizeOffset() {
+        return _constmethod_code_size_offset;
+    }
+
+    static int constantPoolCacheOffset() {
+        return _constantpool_cache_offset;
+    }
+
+    static int instanceKlassSizeHelperOffset() {
+        return _instance_klass_size_offset;
+    }
+
+    static int instanceKlassFieldsOffset() {
+        return _instance_klass_fields_offset;
+    }
+
+    static int instanceKlassAnnotationsOffset() {
+        return _instance_klass_annotations_offset;
     }
 };
 
@@ -295,13 +352,99 @@ class VMKlass : VMStructs {
         return *(ClassLoaderData**)at(_class_loader_data_offset);
     }
 
-    int methodCount() {
+    int methodCount() const {
         int* methods = *(int**)at(_methods_offset);
         return methods == NULL ? 0 : *methods & 0xffff;
     }
 
     jmethodID* jmethodIDs() {
         return __atomic_load_n((jmethodID**)at(_jmethod_ids_offset), __ATOMIC_ACQUIRE);
+    }
+
+    // === Precise Metaspace Memory Measurement Methods ===
+
+    /**
+     * Get InstanceKlass actual size in words (need to multiply by sizeof(uintptr_t) to get bytes)
+     * @return size in words, -1 if not supported or unreasonable
+     */
+    int instanceKlassSizeInWords() const {
+        if (_instance_klass_size_offset >= 0) {
+            int32_t size = SafeAccess::load32((int32_t*)at(_instance_klass_size_offset), -1);
+            // Sanity check: InstanceKlass should be between 64 bytes and 16KB
+            if (size > 0 && size <= MAX_REASONABLE_KLASS_SIZE_WORDS) {
+                return size;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Get virtual method table length
+     * @return VTable length, -1 if not supported or unreasonable
+     */
+    int vtableLength() const {
+        if (_instance_klass_vtable_len_offset >= 0) {
+            int32_t len = SafeAccess::load32((int32_t*)at(_instance_klass_vtable_len_offset), -1);
+            // Sanity check: vtable length should be reasonable
+            if (len >= 0 && len <= MAX_REASONABLE_VTABLE_LENGTH) {
+                return len;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Get interface method table length
+     * @return ITable length, -1 if not supported or unreasonable
+     */
+    int itableLength() const {
+        if (_instance_klass_itable_len_offset >= 0) {
+            int32_t len = SafeAccess::load32((int32_t*)at(_instance_klass_itable_len_offset), -1);
+            // Sanity check: itable length should be reasonable
+            if (len >= 0 && len <= MAX_REASONABLE_ITABLE_LENGTH) {
+                return len;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Get Methods array pointer (Array<Method*>*)
+     * @return pointer to Methods array, nullptr if not supported
+     */
+    void* methodsArray() const {
+        if (_methods_offset >= 0) {
+            return SafeAccess::load((void**)at(_methods_offset), nullptr);
+        }
+        return nullptr;
+    }
+
+    /**
+     * Get ConstantPool pointer
+     * Note: We get it through Method -> ConstMethod -> ConstantPool path
+     * @return pointer to ConstantPool, nullptr if not available
+     */
+    void* constantPool() const {
+        if (_constmethod_constants_offset >= 0) {
+            // Get ConstantPool via: Methods[0] -> ConstMethod -> ConstantPool
+            void* methods_array = methodsArray();
+            if (methods_array && methodCount() > 0) {
+                // Get first Method from Array<Method*>
+                void** methods_data = (void**)((char*)methods_array + _array_data_offset);
+                void* method = SafeAccess::load(methods_data, nullptr);
+                if (method && goodPtr(method)) {
+                    // Method::_constMethod
+                    void* const_method = SafeAccess::load(
+                        (void**)((char*)method + _method_constmethod_offset), nullptr);
+                    if (const_method && goodPtr(const_method)) {
+                        // ConstMethod::_constants
+                        return SafeAccess::load(
+                            (void**)((char*)const_method + _constmethod_constants_offset), nullptr);
+                    }
+                }
+            }
+        }
+        return nullptr;
     }
 };
 
